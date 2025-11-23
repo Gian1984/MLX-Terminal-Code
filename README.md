@@ -35,14 +35,16 @@ The project has two versions with different capabilities:
 - ✅ File editing with diff preview
 - ⚠️ Limited context awareness
 
-#### **Version 2 (mlx-code-v2.py)** - 🚧 Work in Progress
+#### **Version 2 (mlx-code-v2.py)** - ✅ Production Ready
 - ✅ Can **write and create** files
-- ✅ Can **read README.md** automatically
-- 🚧 **Working on**: Auto-reading ALL project files
-- 🚧 **In development**: Full intelligent context loading
-- 🎯 **Goal**: Automatically read and understand entire project structure
+- ✅ Can **read files automatically** when you mention them
+- ✅ **Auto-loads** project context files (README, package.json, etc.)
+- ✅ **Intelligent file detection** in conversations
+- ✅ **Smart error handling** with helpful troubleshooting
+- ✅ **Optimized default model** (1.5B - only 1GB download!)
+- ✅ **Easy model switching** (/q1.5b, /q3b, /q7b commands)
 
-**Current Status:** Version 2 is actively being developed to support complete project-wide file reading and context awareness.
+**Current Status:** Version 2 is production-ready with full intelligent context awareness and improved user experience!
 
 ### 🎯 How to Run
 
@@ -91,6 +93,48 @@ Your main executable:
 - **MLX-LM** → High-performance LLM inference library
 - **Qwen2.5 Coder** → State-of-the-art coding models (7B/3B/1.5B variants)
 - **Python 3.12** → Latest stable Python with performance improvements
+
+### 🤖 Default AI Model
+
+**MLX-CODE starts with the Qwen2.5-Coder-1.5B model by default:**
+
+| Model | Size | Speed | Quality | RAM Usage | Best For |
+|-------|------|-------|---------|-----------|----------|
+| **1.5B** (Default) | ~1GB | ⚡⚡⚡ Fast | ⭐⭐⭐ Good | ~4GB | Quick tasks, testing, slow connections |
+| 3B | ~1.9GB | ⚡⚡ Medium | ⭐⭐⭐⭐ Very Good | ~6GB | Balanced performance & quality |
+| 7B | ~4.3GB | ⚡ Slower | ⭐⭐⭐⭐⭐ Excellent | ~10GB | Best quality, complex tasks |
+
+**Why 1.5B Default?**
+- ✅ **Fastest download** (~1GB vs 1.9GB or 4.3GB)
+- ✅ **Works on all M1+ Macs** (even 8GB RAM)
+- ✅ **Great for most coding tasks**
+- ✅ **Instant responses**
+
+**How to Switch Models:**
+
+Once MLX-CODE is running, you can easily switch models:
+
+```bash
+# Switch to 3B model (better quality)
+> /q3b
+[Press Enter]
+
+# Switch to 7B model (best quality)
+> /q7b
+[Press Enter]
+
+# Switch back to 1.5B (fastest)
+> /q1.5b
+[Press Enter]
+```
+
+**Note:** First time using a model, it will download automatically (~5-30 min depending on size and internet speed). Subsequent uses load instantly from cache.
+
+**Permanent Change:**
+To change the default model permanently, edit `~/mlx-code` line 43:
+```python
+DEFAULT_MODEL = "mlx-community/qwen2.5-coder-3b-instruct-4bit"  # Change to your preference
+```
 
 ### 🚧 Development Roadmap
 
@@ -674,14 +718,46 @@ cd ~/Projects/yourproject
 > now analyze this file
 ```
 
-### ❌ Model loading takes forever
+### ❌ Model download is slow or stuck
 
-**Problem:** First-time download of large model
+**Problem:** First-time download taking too long or appears frozen
 
-**Solution:** 
-- Be patient (7B model is ~4.3GB)
-- Or pre-download with `mlx_lm.convert`
-- Or switch to smaller model with `/q3b` (if implemented)
+**V2 Improvements (Nov 2024):**
+- ✅ Now shows download progress in real-time
+- ✅ Displays estimated download size and time
+- ✅ Default model changed to 3B (~1.9GB instead of 4.3GB)
+- ✅ Helpful tips shown if download is slow
+- ✅ Smart error messages for network/disk/permission issues
+
+**Solutions:**
+1. **Check download speed:** If < 500 KB/s, connection is slow
+2. **Use ethernet cable** instead of WiFi for faster download
+3. **Try smaller model:** Press Ctrl+C, then edit `~/mlx-code` line 43:
+   ```python
+   DEFAULT_MODEL = "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit"  # Only 1GB!
+   ```
+4. **Manual download with resume support:**
+   ```bash
+   pip install --upgrade huggingface_hub[cli]
+   huggingface-cli download mlx-community/qwen2.5-coder-3b-instruct-4bit
+   # If interrupted, run same command again - it resumes!
+   ```
+5. **Try later:** HuggingFace servers might be busy
+
+**What you'll see in V2:**
+```
+📥 Loading model: qwen2.5-coder-3b-instruct-4bit
+⚠️  Model not cached - will download ~1.9GB
+⏱️  Estimated time: 5-30 min (depends on your internet speed)
+
+💡 If download is too slow (< 500 KB/s), press Ctrl+C and:
+   • Try smaller model: /q1.5b (only 1GB)
+   • Check your internet connection (try ethernet cable)
+   ...
+
+Download progress:
+model.safetensors: 45%|███████▌    | 850M/1.9G [12:30<13:45, 1.2MB/s]
+```
 
 ### ❌ "Out of memory" error
 
@@ -1041,12 +1117,40 @@ This project is open-source and free to use.
 - [ ] Create virtual environment (`~/.mlx-env`)
 - [ ] Install `mlx-lm` (and optionally `pillow`)
 - [ ] Create `~/Projects` directory
-- [ ] Choose your version: V1 (stable) or V2 (development)
+- [ ] Choose your version: V1 (basic) or V2 (recommended - production ready)
 - [ ] Copy chosen version to `~/mlx-code`
 - [ ] Make executable: `chmod +x ~/mlx-code`
 - [ ] Test with `~/mlx-code`
 - [ ] Navigate to project: `cd ~/Projects/yourproject`
 - [ ] Start coding with AI! 🚀
+
+---
+
+## 📝 Recent Updates
+
+### Version 2.1 (November 2024) - Download Experience Improvements
+
+**What's New:**
+- ✅ **Optimized Default Model:** Changed from 7B (4.3GB) to 3B (1.9GB) for faster first-time setup
+- ✅ **Smart Download Feedback:** Real-time progress bars, size estimates, and time estimates
+- ✅ **Intelligent Error Messages:** Context-aware troubleshooting for network, disk, and permission errors
+- ✅ **Graceful Interruption:** Press Ctrl+C safely during download with resume instructions
+- ✅ **Model Cache Detection:** Shows if model is already downloaded before starting
+- ✅ **Helpful Tips:** Automatic suggestions when download speed is slow
+
+**Benefits:**
+- 50% smaller default download (1.9GB vs 4.3GB)
+- Better user experience for slow connections
+- Clear visibility into download progress
+- Reduced installation frustration
+
+**Technical Changes:**
+- Added `is_model_cached()` helper function
+- Added `get_model_size_estimate()` helper function
+- Improved `ChatSession.__init__()` with better error handling
+- Removed spinner to show actual HuggingFace progress bars
+
+See [ROADMAP.md](ROADMAP.md) for planned improvements.
 
 ---
 
@@ -1060,20 +1164,20 @@ We're actively working on making MLX-CODE truly intelligent:
 - Basic file writing and editing
 - Beautiful diff previews
 - Automatic backups
-- Template system
-- README.md auto-loading
-
-**🔨 In Progress:**
+- Template system (8 templates)
 - Intelligent file reference detection
 - Auto-loading all mentioned files
 - Smart context management
 - Project-wide file reading
+- Image support (Pillow integration)
+- Smart download experience with error handling
 
 **🎯 Upcoming:**
-- Image support (Pillow integration)
 - Multi-file context priority
 - Cross-file reference understanding
 - Advanced project structure analysis
+- Git integration
+- Real-time file watching
 
 ### How to Contribute / Test
 

@@ -40,7 +40,7 @@ BACKUP_DIR = os.path.join(LOG_DIR, "backups")
 HISTORY_FILE = os.path.join(LOG_DIR, "history.log")
 CONFIG_FILE = os.path.join(LOG_DIR, "config.json")
 
-DEFAULT_MODEL = "mlx-community/qwen2.5-coder-7b-instruct-4bit"
+DEFAULT_MODEL = "mlx-community/qwen2.5-coder-3b-instruct-4bit"  # Changed to 3B for faster download (~1.9GB instead of 4.3GB)
 
 MODEL_ALIASES = {
     "q7b": "mlx-community/qwen2.5-coder-7b-instruct-4bit",
@@ -535,6 +535,35 @@ def grep_files(pattern: str, directory: str, extensions: set = None) -> List[Tup
 
 
 # ---------------------------------------------------------------------------
+# MODEL HELPERS
+# ---------------------------------------------------------------------------
+
+def is_model_cached(model_name: str) -> bool:
+    """Check if model is already downloaded in cache."""
+    cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+    if not os.path.exists(cache_dir):
+        return False
+
+    # HuggingFace converts model names like: mlx-community/model -> models--mlx-community--model
+    model_dir_name = f"models--{model_name.replace('/', '--')}"
+    model_path = os.path.join(cache_dir, model_dir_name)
+
+    return os.path.exists(model_path) and os.path.isdir(model_path)
+
+
+def get_model_size_estimate(model_name: str) -> str:
+    """Get estimated download size for model."""
+    if "7b" in model_name.lower():
+        return "~4.3GB"
+    elif "3b" in model_name.lower():
+        return "~1.9GB"
+    elif "1.5b" in model_name.lower():
+        return "~1.0GB"
+    else:
+        return "~2-5GB"
+
+
+# ---------------------------------------------------------------------------
 # INTELLIGENT CHAT SESSION
 # ---------------------------------------------------------------------------
 
@@ -556,15 +585,73 @@ class ChatSession:
             "tokens_generated": 0,
         }
 
-        spinner = Spinner("Loading model")
-        spinner.start()
+        # Model loading with better feedback
+        model_cached = is_model_cached(model_name)
+        model_size = get_model_size_estimate(model_name)
+
+        print(f"\n{FG_CYAN}{'─' * 70}{RESET}")
+        print(f"{FG_CYAN}📥 Loading model: {model_name.split('/')[-1]}{RESET}")
+
+        if model_cached:
+            print(f"{FG_GREEN}✓ Model found in cache - loading from disk{RESET}")
+            print(f"{FG_CYAN}{'─' * 70}{RESET}\n")
+        else:
+            print(f"{FG_YELLOW}⚠️  Model not cached - will download {model_size}{RESET}")
+            print(f"{FG_YELLOW}⏱️  Estimated time: 5-30 min (depends on your internet speed){RESET}")
+            print(f"\n{FG_YELLOW}💡 If download is too slow (< 500 KB/s), press Ctrl+C and:{RESET}")
+            print(f"   • Try smaller model: /q1.5b (only 1GB)")
+            print(f"   • Check your internet connection (try ethernet cable)")
+            print(f"   • Try again later (servers might be busy)")
+            print(f"   • Download manually: huggingface-cli download {model_name}")
+            print(f"{FG_CYAN}{'─' * 70}{RESET}\n")
+            print(f"{FG_CYAN}Download progress:{RESET}")
+
         try:
+            # Don't use spinner - let HuggingFace progress bars show
             self.model, self.tokenizer = load(model_name)
-            spinner.stop()
-            print(f"{FG_GREEN}✓ Model loaded successfully{RESET}")
+            print(f"\n{FG_GREEN}✅ Model loaded successfully!{RESET}\n")
+
+        except KeyboardInterrupt:
+            print(f"\n\n{FG_YELLOW}⚠️  Download interrupted by user{RESET}")
+            print(f"{FG_CYAN}💡 Next time you run, download will resume from where it stopped{RESET}")
+            print(f"{FG_CYAN}💡 Or try a smaller model - edit ~/mlx-code line 43{RESET}")
+            sys.exit(0)
+
         except Exception as e:
-            spinner.stop()
-            print(f"{FG_RED}✗ Failed to load model: {e}{RESET}")
+            print(f"\n{FG_RED}{'═' * 70}{RESET}")
+            print(f"{FG_RED}❌ Failed to load model{RESET}")
+            print(f"{FG_RED}{'═' * 70}{RESET}")
+
+            error_msg = str(e).lower()
+
+            # Provide specific help based on error type
+            if "connection" in error_msg or "timeout" in error_msg or "network" in error_msg:
+                print(f"\n{FG_YELLOW}🌐 Network Connection Problem:{RESET}")
+                print(f"   • Check your internet connection")
+                print(f"   • Try using ethernet instead of WiFi")
+                print(f"   • Disable VPN if you're using one")
+                print(f"   • Try again in a few minutes")
+
+            elif "disk" in error_msg or "space" in error_msg:
+                print(f"\n{FG_YELLOW}💾 Disk Space Problem:{RESET}")
+                print(f"   • Free up disk space (need ~2-5GB)")
+                print(f"   • Check: df -h ~")
+
+            elif "permission" in error_msg:
+                print(f"\n{FG_YELLOW}🔒 Permission Problem:{RESET}")
+                print(f"   • Check ~/.cache/huggingface/ permissions")
+                print(f"   • Try: chmod -R u+w ~/.cache/huggingface/")
+
+            else:
+                print(f"\n{FG_YELLOW}❓ Unknown Error:{RESET}")
+                print(f"   Error details: {e}")
+
+            print(f"\n{FG_CYAN}💡 Quick Fixes:{RESET}")
+            print(f"   1. Try smaller model: edit ~/mlx-code line 43")
+            print(f"      Change to: Qwen2.5-Coder-1.5B-Instruct-4bit")
+            print(f"   2. Manual download: huggingface-cli download {model_name}")
+            print(f"   3. Check logs: ls -la ~/.cache/huggingface/")
+            print(f"{FG_RED}{'═' * 70}{RESET}\n")
             sys.exit(1)
 
         self.system_prompt = self._build_system_prompt()
@@ -700,19 +787,28 @@ class ChatSession:
         return "\n".join(parts)
 
     def _build_prompt(self, user_message: str, cwd: str) -> str:
-        """Build complete prompt with system + context + history."""
+        """Build complete prompt with system + context + history using Qwen chat template."""
         context = self._build_context_section(cwd)
         user_with_ctx = f"{context}\n\n--- User Message ---\n{user_message}"
 
-        parts: List[str] = [self.system_prompt, ""]
+        # Use Qwen chat template format for better responses
+        parts: List[str] = []
+
+        # System message
+        parts.append(f"<|im_start|>system\n{self.system_prompt}<|im_end|>")
 
         # Add relevant history (smart prioritization)
         for role, txt in self._get_prioritized_history():
-            parts.append(f"{role.capitalize()}: {txt}")
+            if role == "user":
+                parts.append(f"<|im_start|>user\n{txt}<|im_end|>")
+            else:
+                parts.append(f"<|im_start|>assistant\n{txt}<|im_end|>")
 
-        parts.append(f"User: {user_with_ctx}")
-        parts.append("Assistant:")
-        return "\n\n".join(parts)
+        # Current user message
+        parts.append(f"<|im_start|>user\n{user_with_ctx}<|im_end|>")
+        parts.append("<|im_start|>assistant")
+
+        return "\n".join(parts)
 
     def _get_prioritized_history(self) -> List[Tuple[str, str]]:
         """Get history with intelligent prioritization."""

@@ -34,18 +34,25 @@ except ImportError:
 # CONFIG
 # ---------------------------------------------------------------------------
 
-ROOT_DIR = os.path.expanduser("~/Projects")
+# ROOT_DIR will be set dynamically to current working directory at startup
+ROOT_DIR = None  # Set in main()
 LOG_DIR = os.path.expanduser("~/.mlx-code")
 BACKUP_DIR = os.path.join(LOG_DIR, "backups")
 HISTORY_FILE = os.path.join(LOG_DIR, "history.log")
 CONFIG_FILE = os.path.join(LOG_DIR, "config.json")
 
-DEFAULT_MODEL = "mlx-community/qwen2.5-coder-3b-instruct-4bit"  # Changed to 3B for faster download (~1.9GB instead of 4.3GB)
+DEFAULT_MODEL = "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit"  # 1.5B - lightweight demo model (upgrade recommended)
 
 MODEL_ALIASES = {
     "q7b": "mlx-community/qwen2.5-coder-7b-instruct-4bit",
     "q3b": "mlx-community/qwen2.5-coder-3b-instruct-4bit",
     "q1.5b": "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",
+    "q14b": "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
+    "mistral": "mlx-community/Mistral-7B-Instruct-v0.3-4bit",
+    "m7b": "mlx-community/Mistral-7B-Instruct-v0.3-4bit",
+    "deepseek": "mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit",
+    "ds": "mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit",
+    "deepseek-1.3b": "mlx-community/DeepSeek-Coder-1.3B-Instruct-4bit",
 }
 
 DEFAULT_MAX_TOKENS = 1024
@@ -563,6 +570,69 @@ def get_model_size_estimate(model_name: str) -> str:
         return "~2-5GB"
 
 
+def download_model_with_git_lfs(model_name: str) -> bool:
+    """
+    Download model using git-lfs (3-5x faster than HuggingFace Hub).
+    Returns True if successful, False otherwise.
+    """
+    import tempfile
+    import shutil
+
+    # Check if git-lfs is installed
+    result = subprocess.run(["which", "git-lfs"], capture_output=True)
+    if result.returncode != 0:
+        print(f"{FG_YELLOW}ℹ️  git-lfs not found. Install with: brew install git-lfs{RESET}")
+        print(f"{FG_YELLOW}   (Using standard download method instead){RESET}\n")
+        return False
+
+    print(f"{FG_CYAN}🚀 Using git-lfs for faster download (3-5x faster!){RESET}")
+    print(f"{FG_CYAN}{'─' * 70}{RESET}")
+
+    # Create temp directory
+    temp_dir = tempfile.mkdtemp()
+    repo_url = f"https://huggingface.co/{model_name}"
+    repo_name = model_name.split('/')[-1]
+    temp_repo_path = os.path.join(temp_dir, repo_name)
+
+    try:
+        # Clone with git-lfs
+        print(f"{FG_CYAN}📥 Cloning from HuggingFace...{RESET}")
+        result = subprocess.run(
+            ["git", "clone", repo_url, temp_repo_path],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            print(f"{FG_RED}❌ Git clone failed: {result.stderr}{RESET}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False
+
+        # Move to HuggingFace cache location
+        cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        model_dir_name = f"models--{model_name.replace('/', '--')}"
+        final_path = os.path.join(cache_dir, model_dir_name)
+
+        # Remove old incomplete downloads if any
+        if os.path.exists(final_path):
+            shutil.rmtree(final_path)
+
+        # Move cloned repo to cache
+        shutil.move(temp_repo_path, final_path)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        print(f"{FG_GREEN}✅ Model downloaded successfully with git-lfs!{RESET}")
+        print(f"{FG_CYAN}{'─' * 70}{RESET}\n")
+        return True
+
+    except Exception as e:
+        print(f"{FG_RED}❌ Error during git-lfs download: {e}{RESET}")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # INTELLIGENT CHAT SESSION
 # ---------------------------------------------------------------------------
@@ -679,16 +749,30 @@ class ChatSession:
             - Use this context to provide more accurate and relevant suggestions
 
             FILE EDITING PROTOCOL:
-            When creating or modifying files, use this EXACT format:
+            CRITICAL: When user asks to create, modify, or edit files, you MUST use the file: format.
 
-            ```file:relative/path/to/file.ext
-            <complete file content here>
+            For normal questions/discussions: use regular markdown.
+            For file modifications: use the file: format below.
+
+            CORRECT format for file modifications (note the "file:" prefix):
+
+            ```file:path/to/file.py
+            def hello():
+                print("Hello World")
             ```
 
-            - Use relative paths from the current working directory
-            - Provide COMPLETE file content, not diffs or patches
-            - Multiple file blocks are allowed in one response
-            - Explain your changes clearly and concisely
+            WRONG - do NOT use language names for file modifications:
+            ```python
+            def hello():
+                print("Hello World")
+            ```
+
+            Rules:
+            - Use relative paths from current directory
+            - Provide COMPLETE file content, not diffs
+            - Multiple file blocks allowed
+            - The syntax is ```file:filename NOT ```language
+            - DO NOT use file blocks for answering questions
 
             CODE QUALITY STANDARDS:
             - Follow language-specific best practices and style guides
@@ -708,6 +792,9 @@ class ChatSession:
             - Use markdown for formatting
             - Provide working examples when helpful
             - Ask for clarification when requirements are ambiguous
+            - NEVER make up or hallucinate file names or content
+            - If asked about files you don't have in context, say so clearly
+            - For directory listings, tell users to use the /ls command
             """
         ).strip()
 
@@ -759,11 +846,24 @@ class ChatSession:
         """Build context section with project info and loaded files."""
         parts = []
 
-        # Current directory and project type
+        # Current directory and project type - VERY EXPLICIT
         project_type = detect_project_type(cwd)
-        parts.append(f"Current working directory: {cwd}")
+        parts.append("=" * 70)
+        parts.append(f"YOU ARE CURRENTLY IN THIS DIRECTORY: {cwd}")
+        if cwd != ROOT_DIR:
+            parts.append(f"Project root (where mlx-code was launched): {ROOT_DIR}")
+
+        # List files in current directory for better context
+        try:
+            files_in_dir = os.listdir(cwd)[:10]  # First 10 files
+            if files_in_dir:
+                parts.append(f"Files in current directory: {', '.join(files_in_dir)}")
+        except:
+            pass
+
         if project_type:
             parts.append(f"Project type: {project_type}")
+        parts.append("=" * 70)
 
         # Project context files
         if self.project_context:
@@ -888,6 +988,10 @@ class ChatSession:
 
         if not isinstance(response, str):
             response = str(response)
+
+        # Clean up Qwen chat template tokens from response
+        response = response.split("<|im_end|>")[0].strip()
+        response = response.split("<|im_start|>")[0].strip()
 
         # Update stats and history
         self.stats["tokens_generated"] += len(response.split())
@@ -1112,6 +1216,15 @@ def maybe_save_code_block(text: str, current_dir: str, session: ChatSession):
     first = blocks[0]
     lang = first["lang"] or "txt"
     content = first["content"].rstrip("\n") + "\n"
+
+    # Skip markdown and text blocks (usually just for display)
+    skip_langs = ['markdown', 'md', 'text', 'txt', '']
+    if lang.lower() in skip_langs:
+        return
+
+    # Skip very short blocks (< 3 lines, probably just examples)
+    if len(content.splitlines()) < 3:
+        return
 
     print(f"\n{FG_YELLOW}💡 Detected a code block (language: {lang or 'plain text'}).{RESET}")
     ans = input(
@@ -1396,7 +1509,7 @@ def print_help():
     print("=" * 80)
     print(" MLX-CODE-PRO — Intelligent Context-Aware Coding Assistant")
     print("=" * 80)
-    print(f"Sandbox: {FG_CYAN}{ROOT_DIR}{RESET}")
+    print(f"Working Directory: {FG_CYAN}{ROOT_DIR}{RESET}")
     print()
     print("🎯 KEY FEATURES:")
     print("  • Automatic file loading when you mention them")
@@ -1478,13 +1591,15 @@ def print_status(model_name: str, cwd: str, project_type: Optional[str], session
 # ---------------------------------------------------------------------------
 
 def main():
+    global ROOT_DIR
+
+    # Set ROOT_DIR dynamically to where the script is launched
+    ROOT_DIR = os.getcwd()
+
     ensure_directories()
 
     # Initialize
-    cwd = os.getcwd()
-    if not is_safe_path(cwd):
-        cwd = ROOT_DIR
-        os.chdir(cwd)
+    cwd = ROOT_DIR
 
     config = load_config()
     model_name = config.get("model", DEFAULT_MODEL)
@@ -1577,7 +1692,7 @@ def main():
                 continue
 
             # Aliases
-            if cmd in ("/q7b", "/q3b", "/q1.5b"):
+            if cmd in ("/q7b", "/q3b", "/q1.5b", "/mistral", "/m7b"):
                 key = cmd[1:]
                 new_model = MODEL_ALIASES.get(key)
                 if not new_model:

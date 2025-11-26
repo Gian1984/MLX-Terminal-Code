@@ -18,6 +18,8 @@
 9. [Tips & Best Practices](#-9-tips--best-practices)
 10. [Update Instructions](#-10-update-instructions)
 
+**📥 Having download issues?** See **[DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md)** for faster, more reliable model downloads using git-lfs (3-5x faster!)
+
 ---
 
 ## 🚀 1. Overview & Version Info
@@ -96,45 +98,66 @@ Your main executable:
 
 ### 🤖 Default AI Model
 
-**MLX-CODE starts with the Qwen2.5-Coder-1.5B model by default:**
+**⚠️ MLX-CODE starts with Qwen2.5-Coder-1.5B (demo model) — Upgrade Recommended!**
 
-| Model | Size | Speed | Quality | RAM Usage | Best For |
-|-------|------|-------|---------|-----------|----------|
-| **1.5B** (Default) | ~1GB | ⚡⚡⚡ Fast | ⭐⭐⭐ Good | ~4GB | Quick tasks, testing, slow connections |
-| 3B | ~1.9GB | ⚡⚡ Medium | ⭐⭐⭐⭐ Very Good | ~6GB | Balanced performance & quality |
-| 7B | ~4.3GB | ⚡ Slower | ⭐⭐⭐⭐⭐ Excellent | ~10GB | Best quality, complex tasks |
+The default 1.5B model is **intentionally small** for:
+- ✅ Fast first-time setup (~1GB download)
+- ✅ Works on all Macs (even 8GB RAM)
+- ✅ Quick demo/testing
 
-**Why 1.5B Default?**
-- ✅ **Fastest download** (~1GB vs 1.9GB or 4.3GB)
-- ✅ **Works on all M1+ Macs** (even 8GB RAM)
-- ✅ **Great for most coding tasks**
-- ✅ **Instant responses**
+**🎯 For Real Coding Work — Upgrade to Better Models:**
 
-**How to Switch Models:**
+| Model | Size | Speed | Quality | RAM | Command | Recommended For |
+|-------|------|-------|---------|-----|---------|-----------------|
+| 1.5B (Default) | ~1GB | ⚡⚡⚡ | ⭐⭐ | 4GB | `/q1.5b` | **Demo only** - Basic tests |
+| 3B | ~1.9GB | ⚡⚡ | ⭐⭐⭐ | 6GB | `/q3b` | Light coding |
+| **7B** | ~4.3GB | ⚡⚡ | ⭐⭐⭐⭐ | 8GB | `/q7b` | **Recommended** - M1 16GB safe |
+| 14B | ~8.5GB | ⚡ | ⭐⭐⭐⭐ | 16GB | `/q14b` | Advanced (close other apps) |
+| **DeepSeek-V2** | ~9GB | ⚡ | ⭐⭐⭐⭐⭐ | 16GB | `/deepseek` | **Best for code** - M1/M2/M3 16GB+ |
 
-Once MLX-CODE is running, you can easily switch models:
+### 🚀 Quick Upgrade Guide
+
+**Step 1:** Inside MLX-CODE, switch model:
 
 ```bash
-# Switch to 3B model (better quality)
-> /q3b
-[Press Enter]
+# For M1/M2 with 16GB RAM (BEST):
+> /deepseek
 
-# Switch to 7B model (best quality)
+# OR for safe/balanced choice:
 > /q7b
-[Press Enter]
 
-# Switch back to 1.5B (fastest)
-> /q1.5b
-[Press Enter]
+# OR for multitasking:
+> /q3b
 ```
 
-**Note:** First time using a model, it will download automatically (~5-30 min depending on size and internet speed). Subsequent uses load instantly from cache.
+**Step 2:** Wait for first download (5-30 min), then it's cached forever.
 
-**Permanent Change:**
-To change the default model permanently, edit `~/mlx-code` line 43:
+**Step 3 (Optional):** Make it permanent — edit line 44 in `~/mlx-code`:
 ```python
-DEFAULT_MODEL = "mlx-community/qwen2.5-coder-3b-instruct-4bit"  # Change to your preference
+# Change from:
+DEFAULT_MODEL = "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit"
+
+# To (for example):
+DEFAULT_MODEL = "mlx-community/qwen2.5-coder-7b-instruct-4bit"  # Or DeepSeek
 ```
+
+### 💡 Which Model Should I Use?
+
+**If you have M1/M2/M3 with 16GB RAM:**
+1. **DeepSeek-V2-Lite** (`/deepseek`) → Best code quality ⭐⭐⭐⭐⭐
+2. **Qwen 7B** (`/q7b`) → Good balance, safe ⭐⭐⭐⭐
+3. **Qwen 3B** (`/q3b`) → If multitasking ⭐⭐⭐
+
+**If you have M1/M2 with 8GB RAM:**
+1. **Qwen 3B** (`/q3b`) → Best you can run ⭐⭐⭐
+2. **Qwen 1.5B** (`/q1.5b`) → Only if 3B is slow ⭐⭐
+
+**⚠️ Don't Use 1.5B for Real Work** — It's only for demo/testing!
+
+### 📥 Faster Downloads
+
+First-time model downloads can be slow (5-30 min). For **3-5x faster downloads**, see:
+- [DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md) - Use git-lfs for much faster, more reliable downloads
 
 ### 🚧 Development Roadmap
 

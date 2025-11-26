@@ -16,21 +16,38 @@ MLX-CODE is a **100% local AI coding assistant** that runs entirely on your Mac 
 
 ### 🤖 AI Models
 
-MLX-CODE uses **Qwen2.5-Coder models** and starts with the **1.5B version by default** (only 1GB download!):
+**⚠️ Default Model: 1.5B (Demo Only) — Upgrade for Real Coding!**
 
-| Model | Download Size | Speed | Quality | Best For |
-|-------|---------------|-------|---------|----------|
-| **1.5B** ⭐ Default | ~1GB | ⚡⚡⚡ Fastest | ⭐⭐⭐ Good | Most tasks, slow internet |
-| 3B | ~1.9GB | ⚡⚡ Medium | ⭐⭐⭐⭐ Very Good | Better responses |
-| 7B | ~4.3GB | ⚡ Slower | ⭐⭐⭐⭐⭐ Excellent | Complex tasks |
+MLX-CODE starts with **Qwen2.5-Coder-1.5B** by default:
+- ✅ Fast setup (only 1GB download)
+- ✅ Works on all Macs
+- ⚠️ **Limited quality** - only for testing/demo
 
-**Switching Models:**
-Once MLX-CODE is running, type:
-- `/q1.5b` - Switch to 1.5B (fastest)
-- `/q3b` - Switch to 3B (better quality)
-- `/q7b` - Switch to 7B (best quality)
+**🎯 Recommended Models for Real Work:**
 
-The first time you use a model, it downloads automatically. After that, it loads instantly!
+| Model | Size | Quality | RAM | Command | Use For |
+|-------|------|---------|-----|---------|---------|
+| 1.5B (Default) | 1GB | ⭐⭐ | 4GB | `/q1.5b` | **Demo only** |
+| 3B | 1.9GB | ⭐⭐⭐ | 6GB | `/q3b` | Light coding |
+| **7B** ⭐ | 4.3GB | ⭐⭐⭐⭐ | 8GB | `/q7b` | **Recommended** |
+| 14B | 8.5GB | ⭐⭐⭐⭐ | 16GB | `/q14b` | Advanced |
+| **DeepSeek** ⭐⭐⭐ | 9GB | ⭐⭐⭐⭐⭐ | 16GB | `/deepseek` | **Best for code** |
+
+**Quick Upgrade (inside MLX-CODE):**
+```bash
+# Best for M1/M2 16GB:
+> /deepseek
+
+# Safe choice:
+> /q7b
+
+# Multitasking:
+> /q3b
+```
+
+First download takes 5-30 min, then loads instantly from cache.
+
+**💡 Faster Downloads:** See **[DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md)** for git-lfs method (3-5x faster!).
 
 ---
 
@@ -484,6 +501,14 @@ chmod +x ~/mlx-code
 
 ### Model Download is Slow
 
+**⚡ BETTER METHOD AVAILABLE!** Use **git-lfs** for 3-5x faster downloads!
+
+See **[DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md)** for the recommended git-lfs method which is:
+- ✅ 3-5x faster (3-5 MB/s vs 150-500 KB/s)
+- ✅ More reliable with slow connections
+- ✅ Auto-resumes if interrupted
+
+**If using the default method:**
 First download takes time (4-5GB). Grab a coffee! ☕
 - Models are cached in `~/.cache/huggingface/`
 - Only downloads once

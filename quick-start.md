@@ -197,12 +197,27 @@ pip install --upgrade pip
 # Install MLX-LM (REQUIRED - this is the AI engine)
 pip install mlx-lm
 
+# Install prompt-toolkit (RECOMMENDED - for better terminal experience)
+pip install prompt-toolkit
+
 # Install Pillow (OPTIONAL - for image support in V2)
 pip install pillow
 
+# Or install all at once:
+cd ~/Projects/MLX-Terminal-Code
+pip install -r requirements.txt
+
 # Verify installation
 python -c "import mlx_lm; print('✓ MLX-LM installed successfully')"
+python -c "import prompt_toolkit; print('✓ prompt-toolkit installed successfully')"
 ```
+
+**What is prompt-toolkit?**
+- Enables command history with ↑/↓ arrows
+- Allows cursor movement with ←/→ arrows
+- Adds Tab completion for commands
+- Fixes paste issues when pasting multi-line code
+- Makes Ctrl+C work properly (no more ^C symbols!)
 
 ---
 
@@ -433,6 +448,57 @@ Once MLX-CODE is running:
 ```
 /exit              # Quit and save settings
 ```
+
+---
+
+## Keyboard Shortcuts (v2.1+)
+
+**NEW!** With `prompt-toolkit` installed, you get a professional terminal experience:
+
+### Navigation
+```
+↑ / ↓              # Navigate command history (previous/next)
+← / →              # Move cursor to edit text
+Home / End         # Jump to start/end of line
+```
+
+### Editing
+```
+Tab                # Auto-complete commands
+Ctrl+C             # Clear current input (doesn't quit!)
+Ctrl+D             # Exit MLX-CODE
+Backspace / Delete # Edit text normally
+```
+
+### Features
+- ✅ **Command History:** All commands saved, navigate with arrows
+- ✅ **Multi-line Paste:** Paste code without breaking
+- ✅ **Tab Completion:** Type `/mod` then Tab → `/models`
+- ✅ **Smart Ctrl+C:** Clears buffer instead of showing ^C
+
+**Example:**
+```bash
+# Type a command
+> /download ds
+
+# Press ↑ to recall it
+> /download ds
+
+# Press ← to move cursor and edit
+> /download q7b  # Changed ds → q7b
+
+# Press Tab for completion
+> /mod [Tab]
+> /models  # Auto-completed!
+```
+
+**Without prompt-toolkit:**
+- ⚠️ Arrow keys show strange symbols
+- ⚠️ No command history
+- ⚠️ Pasting code may break
+- ⚠️ Ctrl+C shows ^C symbols
+
+**Solution:** Install prompt-toolkit (see Step 4 in Installation)
 
 ---
 

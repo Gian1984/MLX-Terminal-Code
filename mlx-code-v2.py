@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # mlx-code-pro: intelligent local coding assistant with context awareness
-# Requires: pip install mlx-lm pillow
+# Requires: pip install mlx-lm pillow prompt-toolkit
 
 import os
 import sys
@@ -13,6 +13,7 @@ import threading
 import time
 import glob
 import base64
+import subprocess
 from datetime import datetime
 from typing import List, Tuple, Optional, Dict, Set
 from pathlib import Path
@@ -30,6 +31,18 @@ try:
 except ImportError:
     HAS_PIL = False
 
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+    from prompt_toolkit.completion import WordCompleter
+    from prompt_toolkit.styles import Style
+    from prompt_toolkit.formatted_text import HTML
+    HAS_PROMPT_TOOLKIT = True
+except ImportError:
+    HAS_PROMPT_TOOLKIT = False
+    print("WARNING: prompt-toolkit not found. Install for better experience: pip install prompt-toolkit")
+
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
@@ -44,15 +57,34 @@ CONFIG_FILE = os.path.join(LOG_DIR, "config.json")
 DEFAULT_MODEL = "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit"  # 1.5B - lightweight demo model (upgrade recommended)
 
 MODEL_ALIASES = {
-    "q7b": "mlx-community/qwen2.5-coder-7b-instruct-4bit",
-    "q3b": "mlx-community/qwen2.5-coder-3b-instruct-4bit",
-    "q1.5b": "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",
-    "q14b": "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
-    "mistral": "mlx-community/Mistral-7B-Instruct-v0.3-4bit",
-    "m7b": "mlx-community/Mistral-7B-Instruct-v0.3-4bit",
+    # Qwen Coder Models (Recommended for coding)
+    "q1.5b": "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",      # ~1.0GB RAM - Fast, basic
+    "q3b": "mlx-community/qwen2.5-coder-3b-instruct-4bit",          # ~1.9GB RAM - Good balance
+    "q7b": "mlx-community/qwen2.5-coder-7b-instruct-4bit",          # ~4.3GB RAM - Recommended
+    "q14b": "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",        # ~8.5GB RAM - Advanced
+    "q32b": "mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",        # ~17GB RAM - Best (M4 Pro 24GB!)
+
+    # DeepSeek Coder Models (Excellent for code)
+    "ds1.3b": "mlx-community/DeepSeek-Coder-1.3B-Instruct-4bit",    # ~1.0GB RAM - Fast
+    "ds6.7b": "mlx-community/DeepSeek-Coder-6.7B-Instruct-4bit",    # ~4.0GB RAM - Very good
+    "ds": "mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit",     # ~9.0GB RAM - Excellent
     "deepseek": "mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit",
-    "ds": "mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit",
-    "deepseek-1.3b": "mlx-community/DeepSeek-Coder-1.3B-Instruct-4bit",
+
+    # Mistral Models (Versatile)
+    "mistral": "mlx-community/Mistral-7B-Instruct-v0.3-4bit",       # ~4.3GB RAM - Good general
+    "m7b": "mlx-community/Mistral-7B-Instruct-v0.3-4bit",
+
+    # Llama 3 Models (Strong reasoning)
+    "llama3-8b": "mlx-community/Meta-Llama-3-8B-Instruct-4bit",     # ~4.5GB RAM - Good reasoning
+    "l3-8b": "mlx-community/Meta-Llama-3-8B-Instruct-4bit",
+
+    # Phi Models (Efficient, small)
+    "phi3": "mlx-community/Phi-3-mini-4k-instruct-4bit",            # ~2.3GB RAM - Efficient
+    "phi": "mlx-community/Phi-3-mini-4k-instruct-4bit",
+
+    # CodeLlama (Specialized for code)
+    "codellama": "mlx-community/CodeLlama-13b-Instruct-hf-4bit",    # ~7.0GB RAM - Code specialist
+    "cl13b": "mlx-community/CodeLlama-13b-Instruct-hf-4bit",
 }
 
 DEFAULT_MAX_TOKENS = 1024
@@ -560,11 +592,18 @@ def is_model_cached(model_name: str) -> bool:
 
 def get_model_size_estimate(model_name: str) -> str:
     """Get estimated download size for model."""
-    if "7b" in model_name.lower():
-        return "~4.3GB"
-    elif "3b" in model_name.lower():
+    name_lower = model_name.lower()
+    if "32b" in name_lower:
+        return "~17GB"
+    elif "14b" in name_lower or "13b" in name_lower:
+        return "~8.5GB"
+    elif "8b" in name_lower or "9b" in name_lower:
+        return "~4.5GB"
+    elif "7b" in name_lower or "6.7b" in name_lower:
+        return "~4.0GB"
+    elif "3b" in name_lower:
         return "~1.9GB"
-    elif "1.5b" in model_name.lower():
+    elif "1.5b" in name_lower or "1.3b" in name_lower:
         return "~1.0GB"
     else:
         return "~2-5GB"
@@ -631,6 +670,96 @@ def download_model_with_git_lfs(model_name: str) -> bool:
         print(f"{FG_RED}❌ Error during git-lfs download: {e}{RESET}")
         shutil.rmtree(temp_dir, ignore_errors=True)
         return False
+
+
+def list_installed_models() -> List[Tuple[str, str, str]]:
+    """
+    List all installed models in the HuggingFace cache.
+    Returns list of (model_name, directory_name, size)
+    """
+    cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+    if not os.path.exists(cache_dir):
+        return []
+
+    installed = []
+    try:
+        for entry in os.listdir(cache_dir):
+            if entry.startswith("models--"):
+                model_path = os.path.join(cache_dir, entry)
+                if os.path.isdir(model_path):
+                    # Convert directory name back to model name
+                    model_name = entry.replace("models--", "").replace("--", "/")
+
+                    # Calculate size
+                    total_size = 0
+                    for dirpath, dirnames, filenames in os.walk(model_path):
+                        for filename in filenames:
+                            filepath = os.path.join(dirpath, filename)
+                            try:
+                                total_size += os.path.getsize(filepath)
+                            except:
+                                pass
+
+                    # Format size
+                    size_gb = total_size / (1024**3)
+                    size_str = f"{size_gb:.2f}GB"
+
+                    installed.append((model_name, entry, size_str))
+    except Exception as e:
+        print(f"{FG_YELLOW}Warning: Could not list models: {e}{RESET}")
+
+    return sorted(installed)
+
+
+def delete_model(model_name: str) -> bool:
+    """Delete a model from the cache."""
+    cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+    model_dir_name = f"models--{model_name.replace('/', '--')}"
+    model_path = os.path.join(cache_dir, model_dir_name)
+
+    if not os.path.exists(model_path):
+        return False
+
+    try:
+        shutil.rmtree(model_path)
+        return True
+    except Exception as e:
+        print(f"{FG_RED}Error deleting model: {e}{RESET}")
+        return False
+
+
+def get_model_ram_requirement(model_name: str) -> str:
+    """Get estimated RAM requirement for model."""
+    name_lower = model_name.lower()
+    if "32b" in name_lower:
+        return "~20-22GB"
+    elif "14b" in name_lower or "13b" in name_lower:
+        return "~10-12GB"
+    elif "8b" in name_lower or "9b" in name_lower:
+        return "~6-8GB"
+    elif "7b" in name_lower or "6.7b" in name_lower:
+        return "~5-7GB"
+    elif "3b" in name_lower:
+        return "~3-4GB"
+    elif "1.5b" in name_lower or "1.3b" in name_lower:
+        return "~2-3GB"
+    else:
+        return "~4-8GB"
+
+
+def list_available_models() -> Dict[str, Dict]:
+    """List all available models with metadata."""
+    models = {}
+
+    for alias, full_name in MODEL_ALIASES.items():
+        models[alias] = {
+            "name": full_name,
+            "size": get_model_size_estimate(full_name),
+            "ram": get_model_ram_requirement(full_name),
+            "cached": is_model_cached(full_name)
+        }
+
+    return models
 
 
 # ---------------------------------------------------------------------------
@@ -1531,7 +1660,16 @@ def print_help():
     print()
     print("MODEL & SETTINGS:")
     print(f"  {FG_GREEN}/model <id>{RESET}            Switch model")
-    print(f"  {FG_GREEN}/q7b, /q3b, /q1.5b{RESET}     Quick model switch")
+    print(f"  {FG_GREEN}/models{RESET}                List available models")
+    print(f"  {FG_GREEN}/installed{RESET}             Show installed models")
+    print(f"  {FG_GREEN}/download <model>{RESET}      Download a model")
+    print(f"  {FG_GREEN}/delete <model>{RESET}        Delete a model from cache")
+    print()
+    print(f"  {FG_CYAN}Quick model switches (M4 Pro 24GB optimized):{RESET}")
+    print(f"    {FG_GREEN}/q1.5b{RESET} (1GB)   {FG_GREEN}/q3b{RESET} (2GB)    {FG_GREEN}/q7b{RESET} (4GB)    {FG_GREEN}/q14b{RESET} (9GB)   {FG_GREEN}/q32b{RESET} (17GB)")
+    print(f"    {FG_GREEN}/ds1.3b{RESET} (1GB)  {FG_GREEN}/ds6.7b{RESET} (4GB)  {FG_GREEN}/ds{RESET} (9GB)     {FG_GREEN}/deepseek{RESET} (9GB)")
+    print(f"    {FG_GREEN}/phi3{RESET} (2GB)    {FG_GREEN}/llama3-8b{RESET} (5GB)  {FG_GREEN}/mistral{RESET} (4GB)  {FG_GREEN}/codellama{RESET} (7GB)")
+    print()
     print(f"  {FG_GREEN}/tokens <n>{RESET}            Set max tokens")
     print(f"  {FG_GREEN}/ctx <n>{RESET}               Set context size")
     print()
@@ -1566,6 +1704,17 @@ def print_help():
     print("  • The assistant reads and understands your project structure")
     print("  • Multi-line input: finish with empty line")
     print("  • All files backed up before modification")
+    print()
+    if HAS_PROMPT_TOOLKIT:
+        print("⌨️  KEYBOARD SHORTCUTS:")
+        print("  • ↑/↓ Arrow keys: Navigate command history")
+        print("  • ←/→ Arrow keys: Move cursor for editing")
+        print("  • Tab: Auto-complete commands")
+        print("  • Ctrl+C: Clear current input (or use /exit to quit)")
+        print("  • Ctrl+D: Exit")
+        print("  • Ctrl+R: Search command history")
+    else:
+        print(f"{FG_YELLOW}💡 Install prompt-toolkit for better input: pip install prompt-toolkit{RESET}")
     print("=" * 80)
 
 
@@ -1617,12 +1766,61 @@ def main():
 
     print_status(model_name, cwd, project_type, session)
 
+    # Setup advanced input with prompt_toolkit (if available)
+    if HAS_PROMPT_TOOLKIT:
+        # Create history file
+        history_file = os.path.join(LOG_DIR, "command_history.txt")
+
+        # Create completer for commands
+        commands = [
+            '/help', '/exit', '/clear', '/model', '/models', '/installed',
+            '/download', '/delete', '/q1.5b', '/q3b', '/q7b', '/q14b', '/q32b',
+            '/ds', '/ds1.3b', '/ds6.7b', '/deepseek', '/mistral', '/m7b',
+            '/llama3-8b', '/l3-8b', '/phi3', '/phi', '/codellama', '/cl13b',
+            '/tokens', '/ctx', '/pwd', '/cd', '/ls', '/tree', '/grep', '/diff',
+            '/open', '/context', '/template', '/backups', '/restore', '/save',
+            '/last', '/edit', '/stats', '/project'
+        ]
+        completer = WordCompleter(commands, ignore_case=True, sentence=True)
+
+        # Create custom style
+        prompt_style = Style.from_dict({
+            'prompt': 'ansigreen bold',
+        })
+
+        # Create prompt session
+        prompt_session = PromptSession(
+            history=FileHistory(history_file),
+            auto_suggest=AutoSuggestFromHistory(),
+            completer=completer,
+            complete_while_typing=False,
+            style=prompt_style,
+            enable_history_search=True,
+            multiline=False,
+        )
+    else:
+        prompt_session = None
+
     buffer: List[str] = []
 
     while True:
         try:
-            line = input(f"{FG_GREEN}>{RESET} ")
-        except (EOFError, KeyboardInterrupt):
+            if HAS_PROMPT_TOOLKIT and prompt_session:
+                # Use advanced prompt with history and completion
+                line = prompt_session.prompt(HTML(f'<ansigreen>></ansigreen> '))
+            else:
+                # Fallback to basic input
+                line = input(f"{FG_GREEN}>{RESET} ")
+        except KeyboardInterrupt:
+            # CTRL+C: Clear current buffer and show new prompt
+            if buffer:
+                print(f"\n{FG_YELLOW}^C (buffer cleared){RESET}")
+                buffer = []
+            else:
+                print(f"\n{FG_YELLOW}^C (use /exit to quit){RESET}")
+            continue
+        except EOFError:
+            # CTRL+D: Exit gracefully
             print("\n\n👋 Goodbye!")
             break
 
@@ -1691,8 +1889,8 @@ def main():
                 print_status(model_name, cwd, project_type, session)
                 continue
 
-            # Aliases
-            if cmd in ("/q7b", "/q3b", "/q1.5b", "/mistral", "/m7b"):
+            # Aliases - check if command is a model alias
+            if cmd[1:] in MODEL_ALIASES:  # Remove leading / and check
                 key = cmd[1:]
                 new_model = MODEL_ALIASES.get(key)
                 if not new_model:
@@ -1702,6 +1900,170 @@ def main():
                 session = ChatSession(model_name, max_tokens, ctx_chars)
                 session.load_project_context(cwd)
                 print_status(model_name, cwd, project_type, session)
+                continue
+
+            # MODELS - List available models
+            if cmd == "/models":
+                print(f"\n{FG_CYAN}{'═' * 80}{RESET}")
+                print(f"{FG_CYAN}{BOLD}📦 Available Models (M4 Pro 24GB Optimized){RESET}")
+                print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
+
+                models = list_available_models()
+
+                # Group by category
+                categories = {
+                    "Qwen Coder (Recommended for Code)": ["q1.5b", "q3b", "q7b", "q14b", "q32b"],
+                    "DeepSeek Coder (Excellent)": ["ds1.3b", "ds6.7b", "ds", "deepseek"],
+                    "Mistral (Versatile)": ["mistral", "m7b"],
+                    "Llama 3 (Strong Reasoning)": ["llama3-8b", "l3-8b"],
+                    "Phi (Efficient)": ["phi3", "phi"],
+                    "CodeLlama (Code Specialist)": ["codellama", "cl13b"],
+                }
+
+                for category, aliases in categories.items():
+                    print(f"{FG_YELLOW}{BOLD}{category}{RESET}")
+                    for alias in aliases:
+                        if alias in models:
+                            model = models[alias]
+                            status = f"{FG_GREEN}✓ Installed{RESET}" if model["cached"] else f"{FG_RED}✗ Not installed{RESET}"
+                            print(f"  {FG_GREEN}/{alias:12}{RESET}  {model['size']:>7}  {model['ram']:>10} RAM  {status}")
+                    print()
+
+                print(f"{FG_CYAN}💡 Usage:{RESET}")
+                print(f"  • Switch model: {FG_GREEN}/<alias>{RESET} (e.g., /q32b)")
+                print(f"  • Download: {FG_GREEN}/download <alias>{RESET} (e.g., /download q32b)")
+                print(f"  • Delete: {FG_GREEN}/delete <alias>{RESET}")
+                print(f"\n{FG_CYAN}{'═' * 80}{RESET}\n")
+                continue
+
+            # INSTALLED - Show installed models
+            if cmd == "/installed":
+                installed = list_installed_models()
+                if not installed:
+                    print(f"\n{FG_YELLOW}No models installed yet.{RESET}")
+                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}\n")
+                    continue
+
+                print(f"\n{FG_CYAN}{'═' * 80}{RESET}")
+                print(f"{FG_CYAN}{BOLD}💾 Installed Models{RESET}")
+                print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
+
+                total_size = 0
+                for model_name, dir_name, size_str in installed:
+                    size_gb = float(size_str.replace("GB", ""))
+                    total_size += size_gb
+
+                    # Find alias if exists
+                    alias = None
+                    for a, full_name in MODEL_ALIASES.items():
+                        if full_name == model_name:
+                            alias = f"/{a}"
+                            break
+
+                    alias_str = f"{FG_GREEN}{alias}{RESET}" if alias else ""
+                    print(f"  {FG_CYAN}{model_name:55}{RESET} {size_str:>8}  {alias_str}")
+
+                print(f"\n{FG_YELLOW}Total disk usage: {total_size:.2f}GB{RESET}")
+                print(f"{FG_CYAN}Cache location: ~/.cache/huggingface/hub/{RESET}")
+                print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
+                continue
+
+            # DOWNLOAD - Download a model
+            if cmd == "/download":
+                if len(parts) < 2:
+                    print(f"{FG_RED}Usage: /download <model-alias>{RESET}")
+                    print(f"{FG_CYAN}Example: /download q32b{RESET}")
+                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
+                    continue
+
+                alias = parts[1].lower()
+                if alias not in MODEL_ALIASES:
+                    print(f"{FG_RED}Unknown model alias: {alias}{RESET}")
+                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
+                    continue
+
+                target_model = MODEL_ALIASES[alias]
+
+                # Check if already downloaded
+                if is_model_cached(target_model):
+                    print(f"{FG_YELLOW}Model {alias} is already downloaded!{RESET}")
+                    ans = input(f"{FG_YELLOW}Re-download anyway? [y/N] {RESET}").strip().lower()
+                    if ans != 'y':
+                        continue
+
+                size = get_model_size_estimate(target_model)
+                ram = get_model_ram_requirement(target_model)
+
+                print(f"\n{FG_CYAN}{'═' * 70}{RESET}")
+                print(f"{FG_CYAN}📥 Download Model: {FG_GREEN}/{alias}{RESET}")
+                print(f"{FG_CYAN}{'═' * 70}{RESET}")
+                print(f"  Model: {target_model}")
+                print(f"  Size: {size}")
+                print(f"  RAM needed: {ram}")
+                print(f"{FG_CYAN}{'═' * 70}{RESET}\n")
+
+                confirm = input(f"{FG_YELLOW}Download this model? [y/N] {RESET}").strip().lower()
+                if confirm != 'y':
+                    print(f"{FG_CYAN}Download cancelled.{RESET}")
+                    continue
+
+                # Try git-lfs first, then fallback to normal download
+                print(f"\n{FG_CYAN}Starting download...{RESET}\n")
+                success = download_model_with_git_lfs(target_model)
+
+                if not success:
+                    print(f"{FG_CYAN}Falling back to standard download...{RESET}\n")
+                    try:
+                        spinner = Spinner("Downloading model")
+                        spinner.start()
+                        # This will trigger download
+                        from mlx_lm import load
+                        model, tokenizer = load(target_model)
+                        spinner.stop()
+                        print(f"{FG_GREEN}✅ Model downloaded successfully!{RESET}\n")
+                        del model, tokenizer  # Free memory
+                    except Exception as e:
+                        spinner.stop()
+                        print(f"{FG_RED}❌ Download failed: {e}{RESET}\n")
+
+                continue
+
+            # DELETE - Delete a model
+            if cmd == "/delete":
+                if len(parts) < 2:
+                    print(f"{FG_RED}Usage: /delete <model-alias>{RESET}")
+                    print(f"{FG_CYAN}Example: /delete q3b{RESET}")
+                    print(f"{FG_CYAN}Use {FG_GREEN}/installed{FG_CYAN} to see installed models{RESET}")
+                    continue
+
+                alias = parts[1].lower()
+                if alias not in MODEL_ALIASES:
+                    print(f"{FG_RED}Unknown model alias: {alias}{RESET}")
+                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
+                    continue
+
+                target_model = MODEL_ALIASES[alias]
+
+                # Check if model is installed
+                if not is_model_cached(target_model):
+                    print(f"{FG_YELLOW}Model {alias} is not installed.{RESET}")
+                    continue
+
+                print(f"\n{FG_YELLOW}⚠️  WARNING: This will delete the model from disk!{RESET}")
+                print(f"  Model: {target_model}")
+                print(f"  Alias: /{alias}\n")
+
+                confirm = input(f"{FG_YELLOW}Are you sure? [y/N] {RESET}").strip().lower()
+                if confirm != 'y':
+                    print(f"{FG_CYAN}Deletion cancelled.{RESET}")
+                    continue
+
+                if delete_model(target_model):
+                    print(f"{FG_GREEN}✅ Model deleted successfully!{RESET}")
+                    log_operation("MODEL_DELETE", target_model)
+                else:
+                    print(f"{FG_RED}❌ Failed to delete model{RESET}")
+
                 continue
 
             # Tokens

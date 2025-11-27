@@ -18,7 +18,17 @@
 9. [Tips & Best Practices](#-9-tips--best-practices)
 10. [Update Instructions](#-10-update-instructions)
 
+**🆕 v2.1 Update (Nov 27, 2025):**
+- ✅ Model management system with 20+ models
+- ✅ Advanced terminal input with command history & arrow keys
+- ✅ Tab completion and multi-line paste support
+See **[CHANGELOG-27-NOV-2025.md](CHANGELOG-27-NOV-2025.md)**
+
 **📥 Having download issues?** See **[DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md)** for faster, more reliable model downloads using git-lfs (3-5x faster!)
+
+**📚 Comprehensive Guides:**
+- **M4 Pro 24GB:** [GUIDE-M4-PRO-24GB.md](GUIDE-M4-PRO-24GB.md)
+- **M1/M2/M3 16GB:** [GUIDE-M1-16GB.md](GUIDE-M1-16GB.md)
 
 ---
 
@@ -154,6 +164,81 @@ DEFAULT_MODEL = "mlx-community/qwen2.5-coder-7b-instruct-4bit"  # Or DeepSeek
 
 **⚠️ Don't Use 1.5B for Real Work** — It's only for demo/testing!
 
+### 🆕 Model Management (v2.1+)
+
+**NEW!** MLX-CODE now includes powerful model management commands:
+
+```bash
+# List all available models with installation status
+> /models
+
+# Show only installed models with disk usage
+> /installed
+
+# Download a model on-demand
+> /download q32b
+> /download deepseek
+
+# Delete models to free disk space
+> /delete q3b
+
+# Quick switch to any model alias
+> /q7b
+> /ds
+> /llama3-8b
+```
+
+#### 📦 Available Models (20+ options!)
+
+**📖 See the complete guides:** [GUIDE-M4-PRO-24GB.md](GUIDE-M4-PRO-24GB.md) | [GUIDE-M1-16GB.md](GUIDE-M1-16GB.md)
+
+| Category | Models | Best For |
+|----------|--------|----------|
+| **Qwen Coder** | `/q1.5b` `/q3b` `/q7b` `/q14b` ~~`/q32b`~~ | Coding (Recommended) |
+| **DeepSeek** | `/ds1.3b` `/ds6.7b` `/ds` | Code quality ⭐ |
+| **Llama 3** | `/llama3-8b` `/l3-8b` | Reasoning |
+| **CodeLlama** | `/codellama` `/cl13b` | Code specialist |
+| **Mistral** | `/mistral` `/m7b` | Versatile |
+| **Phi** | `/phi3` `/phi` | Efficient |
+
+**⚠️ Important:** Qwen 32B requires ~20GB RAM and may crash on M4 Pro 24GB. Use **DeepSeek V2** (`/ds`) or **Qwen 14B** (`/q14b`) instead for best results!
+
+### 📖 Which Guide Should I Read?
+
+**Choose your guide based on your Mac:**
+
+| Your Mac | RAM | Best Guide | Recommended Model |
+|----------|-----|------------|-------------------|
+| M4 Pro | 24GB | [GUIDE-M4-PRO-24GB.md](GUIDE-M4-PRO-24GB.md) | DeepSeek V2 (`/ds`) |
+| M3 Pro/Max | 16GB | [GUIDE-M1-16GB.md](GUIDE-M1-16GB.md) | Qwen 7B (`/q7b`) |
+| M2 Pro/Max | 16GB | [GUIDE-M1-16GB.md](GUIDE-M1-16GB.md) | Qwen 7B (`/q7b`) |
+| M1 Pro/Max | 16GB | [GUIDE-M1-16GB.md](GUIDE-M1-16GB.md) | Qwen 7B (`/q7b`) |
+| M1/M2/M3 | 8GB | Contact for 8GB guide | Qwen 3B (`/q3b`) |
+
+**Example workflow:**
+```bash
+# Start with default 1.5B
+~/mlx-code
+
+# See all available models
+> /models
+
+# Download best model for your Mac
+# M4 Pro 24GB:
+> /download ds        # DeepSeek V2 - Best for 24GB!
+# or
+> /download q14b      # Qwen 14B - Alternative
+
+# M1/M2/M3 16GB:
+> /download ds        # DeepSeek V2 - Best choice
+
+# M1/M2 8GB:
+> /download q3b       # Qwen 3B - Safe for 8GB
+
+# Switch to downloaded model
+> /ds  # or /q14b or /q3b
+```
+
 ### 📥 Faster Downloads
 
 First-time model downloads can be slow (5-30 min). For **3-5x faster downloads**, see:
@@ -257,14 +342,25 @@ Now you can type `mlxenv` to activate the environment.
 pip install --upgrade pip
 pip install mlx-lm
 
+# Recommended: Advanced terminal input (command history, arrow keys, auto-completion)
+pip install prompt-toolkit
+
 # Optional: Image support
 pip install pillow
+```
+
+Or install all dependencies at once:
+
+```bash
+cd ~/Projects/MLX-Terminal-Code
+pip install -r requirements.txt
 ```
 
 Verify installation:
 
 ```bash
 python -c "import mlx_lm; print('✓ MLX-LM installed successfully')"
+python -c "import prompt_toolkit; print('✓ prompt-toolkit installed successfully')"
 ```
 
 ### Step 5: Pre-download Models (Optional but Recommended)
@@ -442,6 +538,30 @@ I've analyzed hello.py. Here are some suggestions...
 | Smart Context Priority | ❌ No | 🚧 Working on | 🎯 Intelligent |
 
 ### 🔥 Features Available Now (Both Versions)
+
+#### ⌨️ Advanced Terminal Input (v2.1+)
+
+**NEW!** Enhanced input experience with prompt-toolkit:
+
+- ✅ **Command History** - Navigate previous commands with ↑/↓ arrows
+- ✅ **Arrow Key Navigation** - Move cursor with ←/→ to edit text
+- ✅ **Multi-line Paste** - Paste code blocks without breaking
+- ✅ **Tab Completion** - Auto-complete commands with Tab key
+- ✅ **Smart Ctrl+C** - Clears input buffer instead of showing ^C
+- ✅ **Persistent History** - Saved to `~/.mlx-code/command_history.txt`
+
+**Keyboard Shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| **↑ / ↓** | Navigate command history |
+| **← / →** | Move cursor for editing |
+| **Tab** | Auto-complete commands |
+| **Ctrl+C** | Clear current input buffer |
+| **Ctrl+D** | Exit MLX-CODE |
+| **Enter** | Send message (requires empty line or Enter twice) |
+
+**Note:** Requires `prompt-toolkit` package. If not installed, falls back to basic input mode with helpful warning.
 
 #### 💾 File Writing & Editing
 Both versions can create and modify files using the ````file:path` syntax:
@@ -1151,29 +1271,47 @@ This project is open-source and free to use.
 
 ## 📝 Recent Updates
 
-### Version 2.1 (November 2024) - Download Experience Improvements
+### Version 2.1 (November 27, 2025) - Major UX Improvements
 
 **What's New:**
-- ✅ **Optimized Default Model:** Changed from 7B (4.3GB) to 3B (1.9GB) for faster first-time setup
-- ✅ **Smart Download Feedback:** Real-time progress bars, size estimates, and time estimates
-- ✅ **Intelligent Error Messages:** Context-aware troubleshooting for network, disk, and permission errors
-- ✅ **Graceful Interruption:** Press Ctrl+C safely during download with resume instructions
-- ✅ **Model Cache Detection:** Shows if model is already downloaded before starting
-- ✅ **Helpful Tips:** Automatic suggestions when download speed is slow
+
+#### 🎯 Model Management System
+- ✅ **20+ Pre-configured Models:** Qwen, DeepSeek, Llama 3, CodeLlama, Mistral, Phi
+- ✅ **Easy Download Commands:** `/download q7b`, `/download ds`, etc.
+- ✅ **Model Discovery:** `/models` to see all available models
+- ✅ **Disk Management:** `/installed` and `/delete` commands
+- ✅ **Quick Switching:** Fast model switching with simple aliases
+
+#### ⌨️ Advanced Terminal Input
+- ✅ **Command History:** Navigate with ↑/↓ arrow keys
+- ✅ **Cursor Navigation:** Edit text with ←/→ arrows
+- ✅ **Tab Completion:** Auto-complete commands
+- ✅ **Multi-line Paste:** Paste code without breaking
+- ✅ **Smart Ctrl+C:** Clears buffer instead of showing ^C
+- ✅ **Persistent History:** All commands saved to `~/.mlx-code/command_history.txt`
+
+#### 📥 Download Experience
+- ✅ **Optimized Default Model:** Changed to 1.5B (~1GB) for faster first-time setup
+- ✅ **Smart Download Feedback:** Real-time progress bars and estimates
+- ✅ **Intelligent Error Messages:** Context-aware troubleshooting
+- ✅ **Graceful Interruption:** Safe Ctrl+C during downloads
+- ✅ **git-lfs Support:** 3-5x faster downloads (optional)
 
 **Benefits:**
-- 50% smaller default download (1.9GB vs 4.3GB)
-- Better user experience for slow connections
-- Clear visibility into download progress
-- Reduced installation frustration
+- Professional terminal experience matching modern CLIs
+- No more broken paste operations
+- Easy model management without manual HuggingFace downloads
+- Better user experience for both power users and beginners
 
 **Technical Changes:**
-- Added `is_model_cached()` helper function
-- Added `get_model_size_estimate()` helper function
-- Improved `ChatSession.__init__()` with better error handling
-- Removed spinner to show actual HuggingFace progress bars
+- Integrated `prompt-toolkit` with graceful fallback
+- Added `PromptSession` with FileHistory
+- Added `WordCompleter` for command auto-completion
+- Expanded MODEL_ALIASES to 20+ models
+- Added model management functions
+- Improved keyboard interrupt handling
 
-See [ROADMAP.md](ROADMAP.md) for planned improvements.
+See [CHANGELOG-27-NOV-2025.md](CHANGELOG-27-NOV-2025.md) for full details.
 
 ---
 

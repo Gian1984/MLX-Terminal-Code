@@ -1,0 +1,14 @@
+# MLX-CODE Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+mlx-lm>=0.19.3
+huggingface-hub
+
+# Advanced terminal input (recommended for better UX)
+# Enables: command history, arrow key navigation, auto-completion, multi-line paste
+prompt-toolkit>=3.0.43
+
+# Optional: Faster model downloads
+# Install with: brew install git-lfs && git lfs install
+# git-lfs

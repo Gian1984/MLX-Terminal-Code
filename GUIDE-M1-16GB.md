@@ -495,9 +495,11 @@ AVOID:        /q14b+      Too large             ❌
 
 ---
 
-**Last Updated:** November 27, 2025
-**Version:** 2.1
+**Last Updated:** February 25, 2026
+**Version:** 3.0
 **Tested On:** M1 Pro/Max, M2 Pro/Max, M3 Pro/Max with 16GB RAM
+
+**What's New in v3.0:** Streaming output, git integration, 7 new commands, auto-save, no env activation needed. See [CHANGELOG-25-FEB-2026.md](CHANGELOG-25-FEB-2026.md).
 
 ---
 

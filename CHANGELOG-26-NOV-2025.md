@@ -1,159 +1,157 @@
-# 📝 Changelog - 26 Novembre 2024
+# Changelog — November 26, 2025
 
-## 🎯 Modifiche Principali
+## Main Changes
 
-### 1. ✅ Modello Default Cambiato: 3B → 1.5B
+### 1. Default Model Changed: 3B → 1.5B
 
-**Motivo:**
-- Download più veloce (~1GB vs ~2GB)
-- Funziona su tutti i Mac (anche 8GB RAM)
-- Chiaramente indicato come "demo model" nella documentazione
+**Reason:**
+- Faster download (~1GB vs ~2GB)
+- Works on all Macs (even 8GB RAM)
+- Clearly marked as "demo model" in documentation
 
-**File modificati:**
-- `mlx-code-v2.py` (linea 44)
-- `~/mlx-code` (aggiornato con v2)
+**Modified files:**
+- `mlx-code-v2.py` (line 44)
+- `~/mlx-code` (updated with v2)
 
-### 2. ✅ Aggiunti Nuovi Modelli
+### 2. New Models Added
 
-**Modelli disponibili ora:**
+**Now available:**
 - `/q1.5b` - Qwen 1.5B (default demo)
 - `/q3b` - Qwen 3B
 - `/q7b` - Qwen 7B
-- `/q14b` - **NUOVO** Qwen 14B
-- `/deepseek` o `/ds` - **NUOVO** DeepSeek-Coder-V2-Lite
-- `/deepseek-1.3b` - **NUOVO** DeepSeek 1.3B
-- `/mistral` o `/m7b` - Mistral 7B
+- `/q14b` - **NEW** Qwen 14B
+- `/deepseek` or `/ds` - **NEW** DeepSeek-Coder-V2-Lite
+- `/deepseek-1.3b` - **NEW** DeepSeek 1.3B
+- `/mistral` or `/m7b` - Mistral 7B
 
-**File modificato:**
-- `mlx-code-v2.py` (linee 46-56)
+**Modified file:**
+- `mlx-code-v2.py` (lines 46-56)
 
-### 3. ✅ Documentazione Completamente Aggiornata
+### 3. Documentation Fully Updated
 
 **README.md:**
-- ⚠️ Warning chiaro: 1.5B è solo demo
-- Tabella completa con DeepSeek e 14B
-- Guida upgrade rapida
-- Raccomandazioni per RAM (8GB vs 16GB)
+- Clear warning: 1.5B is demo only
+- Complete table with DeepSeek and 14B
+- Quick upgrade guide
+- RAM recommendations (8GB vs 16GB)
 
 **quick-start.md:**
-- Tabella aggiornata con nuovi modelli
-- Warning su 1.5B
+- Updated table with new models
+- Warning about 1.5B
 - Quick upgrade guide
 
 **DOWNLOAD-MODELS.md:**
-- Nota in alto su 1.5B demo
-- Istruzioni DeepSeek
-- Istruzioni Qwen 14B
-- Sezione dedicata M1 16GB RAM
-- Come eliminare modelli vecchi
+- Note at top about 1.5B demo
+- DeepSeek instructions
+- Qwen 14B instructions
+- Dedicated M1 16GB RAM section
+- How to delete old models
 
-**GUIDA-M1-16GB.md:** ✨ NUOVO FILE
-- Guida completa per M1/M2/M3 con 16GB
-- Raccomandazione: DeepSeek migliore
-- Come eliminare 1.5B e 3B
-- Tabella confronto modelli
+**GUIDE-M1-16GB.md:** NEW FILE
+- Complete guide for M1/M2/M3 with 16GB
+- Recommendation: DeepSeek is best
+- How to delete 1.5B and 3B
+- Model comparison table
 - Troubleshooting
 
 ---
 
-## 📊 Situazione Attuale Modelli
+## Current Model Status
 
-### Modelli Installati (dall'output utente):
-- ✅ Qwen 7B (~4GB) - già presente
-- ✅ Qwen 3B (~1.7GB) - riscaricato automaticamente
-- ✅ DeepSeek-V2-Lite (~10GB) - nella cache, pronto all'uso
-- ⚠️ Qwen 1.5B - probabilmente presente o si scaricherà al primo avvio
+### Installed Models:
+- Qwen 7B (~4GB) - already present
+- Qwen 3B (~1.7GB) - auto-downloaded
+- DeepSeek-V2-Lite (~10GB) - in cache, ready to use
+- Qwen 1.5B - present or will download on first launch
 
-### Da Eliminare (opzionale):
+### Optional Cleanup:
 ```bash
-# Elimina 3B se non serve (libera 1.7GB)
+# Delete 3B if not needed (frees 1.7GB)
 rm -rf ~/.cache/huggingface/hub/models--mlx-community--qwen2.5-coder-3b-instruct-4bit/
 
-# Elimina 1.5B se non serve (libera 1GB)
+# Delete 1.5B if not needed (frees 1GB)
 rm -rf ~/.cache/huggingface/hub/models--mlx-community--Qwen2.5-Coder-1.5B-Instruct-4bit/
 ```
 
 ---
 
-## 🚀 Come Usare Ora
+## How to Use
 
-### 1. Avvia MLX-CODE:
+### 1. Launch MLX-CODE:
 ```bash
 ~/mlx-code
 ```
 
-### 2. Cambia modello subito:
+### 2. Switch model immediately:
 ```bash
-# Migliore per coding:
+# Best for coding:
 > /deepseek
 
-# Oppure safe choice:
+# Or safe choice:
 > /q7b
 ```
 
-### 3. DeepSeek dovrebbe caricarsi SENZA download (già presente)
+### 3. DeepSeek should load WITHOUT downloading (already cached)
 
 ---
 
-## 🎓 Raccomandazioni Finali
+## Final Recommendations
 
-### Per M1 16GB (la tua config):
+### For M1 16GB:
 
-**Setup Ottimale:**
-1. **Elimina** 1.5B e 3B (risparmi ~3GB)
-2. **Tieni** Qwen 7B (backup veloce)
-3. **Usa** DeepSeek come principale
+**Optimal Setup:**
+1. **Delete** 1.5B and 3B (saves ~3GB)
+2. **Keep** Qwen 7B (fast backup)
+3. **Use** DeepSeek as primary
 
-**Comandi da usare:**
-- Coding serio → `/deepseek` (chiudi Chrome)
+**Commands to use:**
+- Serious coding → `/deepseek` (close Chrome)
 - Quick tasks → `/q7b` (multitasking ok)
-- **NON** usare `/q1.5b` o `/q3b` (scarsi)
+- **DON'T** use `/q1.5b` or `/q3b` (poor quality)
 
 ---
 
-## 🐛 Fix Problemi Noti
+## Bug Fixes
 
-### ✅ RISOLTO: `/deepseek` non funzionava
-**Causa:** Stava usando vecchia versione di mlx-code
-**Fix:** `~/mlx-code` ora usa `mlx-code-v2.py` aggiornato
+### FIXED: `/deepseek` was not working
+**Cause:** Was using old version of mlx-code
+**Fix:** `~/mlx-code` now uses updated `mlx-code-v2.py`
 
-### ✅ RISOLTO: 3B si riscaricava sempre
-**Causa:** DEFAULT_MODEL era 3B
-**Fix:** Cambiato a 1.5B
+### FIXED: 3B kept re-downloading
+**Cause:** DEFAULT_MODEL was set to 3B
+**Fix:** Changed to 1.5B
 
-### ✅ RISOLTO: Documentazione confusa su modelli
-**Causa:** Non chiaro quale usare
-**Fix:** Tutte le doc aggiornate con warning e raccomandazioni
-
----
-
-## 📁 File Modificati/Creati
-
-### Modificati:
-- ✏️ `mlx-code-v2.py` (DEFAULT_MODEL + nuovi aliases)
-- ✏️ `~/mlx-code` (sostituito con v2)
-- ✏️ `README.md` (sezione modelli completamente rifatta)
-- ✏️ `quick-start.md` (tabella modelli aggiornata)
-- ✏️ `DOWNLOAD-MODELS.md` (DeepSeek + 14B + M1 guide)
-
-### Creati:
-- ✨ `GUIDA-M1-16GB.md` (guida italiana completa)
-- ✨ `CHANGELOG-26-NOV-2024.md` (questo file)
+### FIXED: Confusing model documentation
+**Cause:** Not clear which model to use
+**Fix:** All docs updated with warnings and recommendations
 
 ---
 
-## 🎯 Prossimi Passi Suggeriti
+## Modified/Created Files
 
-1. **Testa `/deepseek`** nel tuo MLX-CODE aggiornato
-2. **Elimina 1.5B e 3B** se non servono (comando sopra)
-3. **Imposta DeepSeek come default** se ti piace (edit linea 44 in ~/mlx-code)
-4. **Chiudi browser** quando usi DeepSeek (per avere RAM libera)
+### Modified:
+- `mlx-code-v2.py` (DEFAULT_MODEL + new aliases)
+- `~/mlx-code` (replaced with v2)
+- `README.md` (model section completely redone)
+- `quick-start.md` (model table updated)
+- `DOWNLOAD-MODELS.md` (DeepSeek + 14B + M1 guide)
+
+### Created:
+- `GUIDE-M1-16GB.md` (complete guide)
+- `CHANGELOG-26-NOV-2025.md` (this file)
 
 ---
 
-**Tutto fatto! 🎉**
+## Suggested Next Steps
 
-Per domande o problemi, vedi:
-- [README.md](README.md) - Guida completa
-- [GUIDA-M1-16GB.md](GUIDA-M1-16GB.md) - Guida specifica per te
-- [DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md) - Dettagli modelli
+1. **Test `/deepseek`** in your updated MLX-CODE
+2. **Delete 1.5B and 3B** if not needed (command above)
+3. **Set DeepSeek as default** if you like it (edit line 44 in ~/mlx-code)
+4. **Close browser** when using DeepSeek (to free RAM)
+
+---
+
+For questions or issues, see:
+- [README.md](README.md) - Complete guide
+- [GUIDE-M1-16GB.md](GUIDE-M1-16GB.md) - Hardware-specific guide
+- [DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md) - Model details

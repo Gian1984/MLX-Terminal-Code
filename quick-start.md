@@ -167,20 +167,12 @@ A virtual environment keeps MLX-CODE's dependencies separate from your system Py
 ```bash
 # Create the environment
 python3.12 -m venv ~/.mlx-env
-
-# Activate it
-source ~/.mlx-env/bin/activate
-
-# Your prompt should now show: (mlx-env)
 ```
 
-**Make activation easier** (optional):
-```bash
-# Add this alias to your shell config
-echo 'alias mlxenv="source ~/.mlx-env/bin/activate"' >> ~/.zshrc
-source ~/.zshrc
+**Note:** As of v3.0, you do NOT need to activate the environment to run MLX-CODE. The script uses the venv Python directly. Only activate for installing packages:
 
-# Now you can just type: mlxenv
+```bash
+source ~/.mlx-env/bin/activate  # Only needed for pip install
 ```
 
 ---
@@ -274,16 +266,12 @@ source ~/.zshrc
 
 ## First Run
 
-### 1. Navigate to Projects Folder
+### 1. Navigate to Your Project
 
 ```bash
-# Go to Projects (or create a test project)
-mkdir -p ~/Projects/test-project
-cd ~/Projects/test-project
-
-# Activate virtual environment
-source ~/.mlx-env/bin/activate
-# Or if you set up the alias: mlxenv
+# Go to your project directory
+cd ~/Documents/Progetti/your-project
+# Or any directory you want to work in
 ```
 
 ### 2. Launch MLX-CODE
@@ -292,11 +280,13 @@ source ~/.mlx-env/bin/activate
 ~/mlx-code
 ```
 
+**No env activation needed!** (v3.0+ uses the venv Python directly via shebang)
+
 **⏳ First Launch:**
-- The AI model will download (~4.3GB for 7B version)
-- This takes 5-10 minutes depending on your internet
+- The AI model will download (~1GB for default 1.5B)
+- This takes 1-5 minutes depending on your internet
 - Only happens once - models are cached locally
-- You'll see a loading spinner
+- Real-time progress is shown
 
 **✅ Success:**
 You'll see the MLX-CODE banner and help text!
@@ -626,18 +616,22 @@ First download takes time (4-5GB). Grab a coffee! ☕
 
 ## Version Differences Quick Reference
 
-| Feature | Version 1 | Version 2 |
+| Feature | Version 1 | Version 3 |
 |---------|-----------|-----------|
 | Write/Edit Files | ✅ | ✅ |
 | File Backups | ✅ | ✅ |
 | Templates | 6 templates | 8 templates |
 | Auto-load files when mentioned | ❌ | ✅ |
-| Project context awareness | ❌ | ✅ |
-| Image support | ❌ | ✅ |
-| `/context` commands | ❌ | ✅ |
-| Manual `/open` command | ✅ | ✅ |
+| Streaming output | ❌ | ✅ |
+| Git integration | ❌ | ✅ |
+| Shell execution (`/run`) | ❌ | ✅ |
+| Auto-save conversations | ❌ | ✅ |
+| Per-project config | ❌ | ✅ |
+| Find & replace (`/replace`) | ❌ | ✅ |
+| Clipboard (`/copy`) | ❌ | ✅ |
+| File search (`/find`) | ❌ | ✅ |
 
-**Recommendation:** Use Version 2 for the best experience!
+**Recommendation:** Use Version 3 (mlx-code-v2.py) for the best experience!
 
 ---
 
@@ -719,14 +713,12 @@ source ~/.mlx-env/bin/activate
 # Setup (one-time)
 python3.12 -m venv ~/.mlx-env
 source ~/.mlx-env/bin/activate
-pip install mlx-lm pillow
-mkdir -p ~/Projects
+pip install mlx-lm prompt-toolkit pillow
 cp mlx-code-v2.py ~/mlx-code
 chmod +x ~/mlx-code
 
-# Daily usage
-cd ~/Projects/your-project
-source ~/.mlx-env/bin/activate
+# Daily usage (no env activation needed!)
+cd ~/your-project
 ~/mlx-code
 
 # Inside MLX-CODE
@@ -783,6 +775,6 @@ rm -rf ~/.mlx-code/
 
 ---
 
-*Last updated: November 2024*
-*MLX-CODE Version 2.0*
+*Last updated: February 25, 2026*
+*MLX-CODE Version 3.0*
 *For Apple Silicon Macs (M1/M2/M3/M4)*

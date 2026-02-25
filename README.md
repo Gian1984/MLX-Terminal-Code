@@ -18,11 +18,13 @@
 9. [Tips & Best Practices](#-9-tips--best-practices)
 10. [Update Instructions](#-10-update-instructions)
 
-**🆕 v2.1 Update (Nov 27, 2025):**
-- ✅ Model management system with 20+ models
-- ✅ Advanced terminal input with command history & arrow keys
-- ✅ Tab completion and multi-line paste support
-See **[CHANGELOG-27-NOV-2025.md](CHANGELOG-27-NOV-2025.md)**
+**🆕 v3.0 Update (Feb 25, 2026):**
+- ✅ Streaming output with real-time token generation
+- ✅ Universal model compatibility (any chat model works)
+- ✅ 7 new commands: `/git`, `/run`, `/find`, `/replace`, `/copy`, `/undo`
+- ✅ Auto-save conversations, per-project config, command dispatcher architecture
+- ✅ No more `source env` needed — direct execution with `~/mlx-code`
+See **[CHANGELOG-25-FEB-2026.md](CHANGELOG-25-FEB-2026.md)**
 
 **📥 Having download issues?** See **[DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md)** for faster, more reliable model downloads using git-lfs (3-5x faster!)
 
@@ -47,16 +49,21 @@ The project has two versions with different capabilities:
 - ✅ File editing with diff preview
 - ⚠️ Limited context awareness
 
-#### **Version 2 (mlx-code-v2.py)** - ✅ Production Ready
+#### **Version 2 / v3.0 (mlx-code-v2.py)** - ✅ Production Ready
 - ✅ Can **write and create** files
 - ✅ Can **read files automatically** when you mention them
 - ✅ **Auto-loads** project context files (README, package.json, etc.)
 - ✅ **Intelligent file detection** in conversations
-- ✅ **Smart error handling** with helpful troubleshooting
-- ✅ **Optimized default model** (1.5B - only 1GB download!)
-- ✅ **Easy model switching** (/q1.5b, /q3b, /q7b commands)
+- ✅ **Streaming output** with real-time token generation
+- ✅ **Universal model compatibility** (Qwen, Llama, Mistral, Phi, DeepSeek, etc.)
+- ✅ **Git integration** (`/git status`, `/git diff`, `/git commit`)
+- ✅ **Shell execution** (`/run`, `/run --ai`)
+- ✅ **Auto-save conversations** with restore on startup
+- ✅ **Per-project config** (`.mlx-code.json`)
+- ✅ **Command dispatcher architecture** (clean, extensible codebase)
+- ✅ **No env activation needed** — runs directly via `~/mlx-code`
 
-**Current Status:** Version 2 is production-ready with full intelligent context awareness and improved user experience!
+**Current Status:** Version 3.0 is production-ready with streaming, git integration, and professional-grade UX!
 
 ### 🎯 How to Run
 
@@ -76,10 +83,13 @@ cd ~/Projects/MLX-Terminal-Code
 ### ✨ What Makes It Special
 
 - **🔒 100% Local & Private** — No data sent to external servers
-- **🧠 Intelligent Context** — (V2 in development) Automatically loads files
+- **🧠 Intelligent Context** — Automatically loads files when you mention them
 - **📁 Project Awareness** — Understands your codebase structure
-- **🖼️ Image Support** — (V2 feature) Can view and describe images
+- **🖼️ Image Support** — Can view and describe images with PIL
 - **💾 Auto-Backup** — Every file modification is backed up automatically
+- **⚡ Streaming Output** — Real-time token generation with speed stats
+- **🔧 Git Integration** — Built-in git status, diff, log, commit
+- **💬 Auto-Save** — Conversations saved and restored automatically
 - **⚡ GPU Accelerated** — Uses Apple Silicon GPU for fast inference
 - **🎯 Smart Templates** — Quick workflows for testing, documentation, refactoring, etc.
 
@@ -102,8 +112,9 @@ Your main executable:
 ### 🔧 Technology Stack
 
 - **MLX** (Apple) → Metal GPU acceleration for M-series chips
-- **MLX-LM** → High-performance LLM inference library
-- **Qwen2.5 Coder** → State-of-the-art coding models (7B/3B/1.5B variants)
+- **MLX-LM** → High-performance LLM inference with streaming support
+- **Qwen2.5 Coder** → State-of-the-art coding models (any model supported via `apply_chat_template`)
+- **prompt-toolkit** → Advanced terminal input with history, completion, and cursor navigation
 - **Python 3.12** → Latest stable Python with performance improvements
 
 ### 🤖 Default AI Model
@@ -254,20 +265,23 @@ First-time model downloads can be slow (5-30 min). For **3-5x faster downloads**
 - Template system
 - Navigation commands (`/ls`, `/cd`, `/tree`)
 
-#### 🔨 Version 2 - Current Work (Active Development)
-- ✅ **Completed:** README.md auto-loading
-- 🚧 **In Progress:** Complete project file auto-reading
-- 🚧 **In Progress:** Intelligent file reference detection
-- 🚧 **Planned:** Multi-file context awareness
-- 🚧 **Planned:** Image support with PIL
-- 🚧 **Planned:** Smart context prioritization
+#### ✅ Version 3.0 - Current Release (February 2026)
+- ✅ **Streaming output** with real-time token generation
+- ✅ **Universal model compatibility** via `apply_chat_template()`
+- ✅ **Git integration** (`/git status`, `/git diff`, `/git commit`)
+- ✅ **Command dispatcher architecture** (clean, extensible codebase)
+- ✅ **Auto-save conversations** with restore on startup
+- ✅ **Per-project config** (`.mlx-code.json`)
+- ✅ **7 new commands** (`/git`, `/run`, `/find`, `/replace`, `/copy`, `/undo`)
+- ✅ **Context budget management** (prevents prompt overflow)
+- ✅ **Repetition detection** (stops stuck generation loops)
 
-#### 🎯 Future Goals (Version 3+)
+#### 🎯 Future Goals (Version 4+)
 - Real-time file watching
-- Git integration
 - Multi-project context switching
 - Plugin system
 - Web UI interface
+- Vector database for semantic code search
 
 ---
 
@@ -312,28 +326,17 @@ python3.12 --version
 
 ### Step 3: Create Virtual Environment
 
-Create a dedicated environment for MLX-CODE-PRO:
+Create a dedicated environment for MLX-CODE:
 
 ```bash
 python3.12 -m venv ~/.mlx-env
 ```
 
-Activate it:
+**Note:** As of v3.0, you do NOT need to activate the environment to run MLX-CODE. The script uses the venv Python directly via its shebang line. You only need to activate it for installing packages:
 
 ```bash
-source ~/.mlx-env/bin/activate
+source ~/.mlx-env/bin/activate  # Only needed for pip install
 ```
-
-You should see `(mlx-env)` in your terminal prompt.
-
-**💡 Tip:** Add this to your `~/.zshrc` for easy activation:
-
-```bash
-echo 'alias mlxenv="source ~/.mlx-env/bin/activate"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-Now you can type `mlxenv` to activate the environment.
 
 ### Step 4: Install Required Packages
 
@@ -606,35 +609,25 @@ Quick workflows available in both versions:
 | `optimize` | Performance tips | `/template optimize myfile.py` |
 | `explain` | Explain code | `/template explain myfile.py` |
 
-### 🚧 Features in Development (Version 2)
+### ✅ Intelligent Features (Version 3.0)
 
-#### 🧠 Intelligent File Reading (Work in Progress)
+#### 🧠 Intelligent File Reading
 
-**Current Status:**
-- ✅ README.md is automatically loaded when you start
-- ⚠️ Other files require manual `/open filename` command
-- 🚧 Working on: Detecting file mentions in conversation
-- 🚧 Working on: Auto-loading referenced files
+**Fully implemented:**
+- ✅ Project context files auto-loaded on startup (README.md, requirements.txt, etc.)
+- ✅ Files auto-loaded when you mention them in conversation
+- ✅ Context budget management prevents prompt overflow
+- ✅ File truncation with warnings for large files
 
-**Goal:** When you say *"check main.py for bugs"*, the assistant will automatically:
-1. Detect you mentioned `main.py`
-2. Find it in the project
-3. Load it into context
-4. Analyze it
+Just say *"check main.py for bugs"* and the assistant will automatically detect, load, and analyze it.
 
-**Current Workaround:**
-```
-> /open main.py
-> now check it for bugs
-```
+#### 📁 Project Context Awareness
 
-#### 📁 Project Context Awareness (Planned)
-
-The assistant will automatically understand:
-- Project type (Python, Node.js, Rust, etc.)
-- Dependencies (requirements.txt, package.json)
-- Project structure
-- Related files
+The assistant automatically understands:
+- ✅ Project type (Python, Node.js, Rust, etc.)
+- ✅ Dependencies (requirements.txt, package.json)
+- ✅ Project structure and files
+- ✅ Per-project configuration via `.mlx-code.json`
 
 ### 🎨 Smart Code Generation (Available Now)
 
@@ -695,6 +688,27 @@ The assistant generates production-ready code with:
 |---------|-------------|---------|
 | `/grep <pattern>` | Search in files | `/grep "TODO"` |
 | `/diff <f1> <f2>` | Compare two files | `/diff old.py new.py` |
+| `/find <pattern>` | Find files by name (glob) | `/find "*.py"` |
+| `/replace <f> "a" "b"` | Find and replace in file | `/replace main.py "old" "new"` |
+
+### 🔧 Git Integration (v3.0+)
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/git status` | Show changed files | `/git status` |
+| `/git diff` | Show changes | `/git diff` |
+| `/git log` | Recent commits | `/git log` |
+| `/git add <file>` | Stage file | `/git add main.py` |
+| `/git commit <msg>` | Commit changes | `/git commit "fix bug"` |
+| `/git branch` | Show branches | `/git branch` |
+| `/git stash` | Stash changes | `/git stash` |
+
+### 🖥️ Execution (v3.0+)
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/run <command>` | Execute shell command | `/run python test.py` |
+| `/run <cmd> --ai` | Run and send output to AI | `/run pytest --ai` |
 
 ### 📋 Templates
 
@@ -719,6 +733,8 @@ The assistant generates production-ready code with:
 | `/edit` | Open last modified file in $EDITOR | `/edit` |
 | `/stats` | Show session statistics | `/stats` |
 | `/project` | Detect and show project info | `/project` |
+| `/copy` | Copy last code block to clipboard | `/copy` |
+| `/undo` | Undo last file modification | `/undo` |
 
 ---
 
@@ -1107,17 +1123,21 @@ nano ~/mlx-code
 
 ### MLX-CODE vs Other Tools
 
-| Feature | MLX-CODE V1 | MLX-CODE V2 | GitHub Copilot | Claude Code |
+| Feature | MLX-CODE V1 | MLX-CODE V3 | GitHub Copilot | Claude Code |
 |---------|-------------|-------------|----------------|-------------|
 | 100% Local/Private | ✅ | ✅ | ❌ | ❌ |
 | Write/Edit Files | ✅ | ✅ | ✅ | ✅ |
-| Read Files Auto | ❌ | 🚧 Partial | ⚠️ Limited | ✅ |
-| Full Project Context | ❌ | 🚧 WIP | ⚠️ Limited | ✅ |
-| Image Support | ❌ | 🚧 Planned | ❌ | ✅ |
+| Read Files Auto | ❌ | ✅ | ⚠️ Limited | ✅ |
+| Full Project Context | ❌ | ✅ | ⚠️ Limited | ✅ |
+| Streaming Output | ❌ | ✅ | ✅ | ✅ |
+| Git Integration | ❌ | ✅ | ✅ | ✅ |
+| Image Support | ❌ | ✅ | ❌ | ✅ |
 | Automatic Backups | ✅ | ✅ | ❌ | ❌ |
 | Template System | ✅ | ✅ | ❌ | ⚠️ |
 | Free & Open Source | ✅ | ✅ | ❌ | ❌ |
 | Requires Internet | ❌ | ❌ | ✅ | ✅ |
+| Shell Execution | ❌ | ✅ | ⚠️ | ✅ |
+| Auto-save Sessions | ❌ | ✅ | ❌ | ⚠️ |
 | Multi-file Editing | ✅ | ✅ | ⚠️ | ✅ |
 | Diff Preview | ✅ | ✅ | ⚠️ | ⚠️ |
 
@@ -1134,16 +1154,16 @@ nano ~/mlx-code
 - ✅ Production ready for file editing
 - ❌ No file reading capabilities
 
-**V2 (Current - Active Development)**
-- ✅ Complete: README.md auto-loading
-- 🚧 In Progress: Full file reading system
-- 🚧 In Progress: Intelligent context management
+**V3.0 (Current - February 2026)**
+- ✅ Complete: Streaming output, git integration, 7 new commands
+- ✅ Complete: Universal model compatibility, auto-save, per-project config
+- ✅ Complete: Command dispatcher architecture, context budget management
 - 🎯 Goal: Match Claude Code functionality locally
 
-**V3 (Future)**
-- Git integration
+**V4 (Future)**
 - Real-time file watching
 - Multi-project support
+- Plugin system
 - Web UI
 
 ---
@@ -1271,74 +1291,62 @@ This project is open-source and free to use.
 
 ## 📝 Recent Updates
 
-### Version 2.1 (November 27, 2025) - Major UX Improvements
+### Version 3.0 (February 25, 2026) - Major Architecture & UX Overhaul
 
-**What's New:**
+**21 improvements** including streaming output, git integration, and command dispatcher architecture.
 
-#### 🎯 Model Management System
-- ✅ **20+ Pre-configured Models:** Qwen, DeepSeek, Llama 3, CodeLlama, Mistral, Phi
-- ✅ **Easy Download Commands:** `/download q7b`, `/download ds`, etc.
-- ✅ **Model Discovery:** `/models` to see all available models
-- ✅ **Disk Management:** `/installed` and `/delete` commands
-- ✅ **Quick Switching:** Fast model switching with simple aliases
+**Highlights:**
+- ✅ **Streaming output** — Real-time token-by-token generation
+- ✅ **Universal model support** — Any chat model works via `apply_chat_template()`
+- ✅ **Git integration** — `/git status`, `/git diff`, `/git commit`, etc.
+- ✅ **7 new commands** — `/git`, `/run`, `/find`, `/replace`, `/copy`, `/undo`
+- ✅ **Auto-save conversations** — Never lose work, restore on startup
+- ✅ **Per-project config** — `.mlx-code.json` for project-specific settings
+- ✅ **No env activation** — Run `~/mlx-code` directly
+- ✅ **Compact system prompt** — Fixes repeated responses on small models
+- ✅ **Security fixes** — Command injection fix, bare except cleanup
+- ✅ **Context budget** — Prevents prompt overflow on large codebases
 
-#### ⌨️ Advanced Terminal Input
-- ✅ **Command History:** Navigate with ↑/↓ arrow keys
-- ✅ **Cursor Navigation:** Edit text with ←/→ arrows
-- ✅ **Tab Completion:** Auto-complete commands
-- ✅ **Multi-line Paste:** Paste code without breaking
-- ✅ **Smart Ctrl+C:** Clears buffer instead of showing ^C
-- ✅ **Persistent History:** All commands saved to `~/.mlx-code/command_history.txt`
+See [CHANGELOG-25-FEB-2026.md](CHANGELOG-25-FEB-2026.md) for full details.
 
-#### 📥 Download Experience
-- ✅ **Optimized Default Model:** Changed to 1.5B (~1GB) for faster first-time setup
-- ✅ **Smart Download Feedback:** Real-time progress bars and estimates
-- ✅ **Intelligent Error Messages:** Context-aware troubleshooting
-- ✅ **Graceful Interruption:** Safe Ctrl+C during downloads
-- ✅ **git-lfs Support:** 3-5x faster downloads (optional)
+### Version 2.1 (November 27, 2025) - Model Management & Terminal Input
 
-**Benefits:**
-- Professional terminal experience matching modern CLIs
-- No more broken paste operations
-- Easy model management without manual HuggingFace downloads
-- Better user experience for both power users and beginners
+- ✅ 20+ pre-configured models with easy switching
+- ✅ Advanced terminal input with prompt-toolkit
+- ✅ Model management commands (`/models`, `/installed`, `/download`, `/delete`)
 
-**Technical Changes:**
-- Integrated `prompt-toolkit` with graceful fallback
-- Added `PromptSession` with FileHistory
-- Added `WordCompleter` for command auto-completion
-- Expanded MODEL_ALIASES to 20+ models
-- Added model management functions
-- Improved keyboard interrupt handling
-
-See [CHANGELOG-27-NOV-2025.md](CHANGELOG-27-NOV-2025.md) for full details.
+See [CHANGELOG-27-NOV-2025.md](CHANGELOG-27-NOV-2025.md) for details.
 
 ---
 
 ## 🚧 Development Status
 
-### Current Focus (Version 2)
-
-We're actively working on making MLX-CODE truly intelligent:
+### Current Release (Version 3.0 — February 2026)
 
 **✅ Completed:**
-- Basic file writing and editing
-- Beautiful diff previews
-- Automatic backups
+- Basic file writing and editing with diff previews
+- Automatic backups and undo support
 - Template system (8 templates)
-- Intelligent file reference detection
-- Auto-loading all mentioned files
-- Smart context management
-- Project-wide file reading
-- Image support (Pillow integration)
-- Smart download experience with error handling
+- Intelligent file reference detection and auto-loading
+- Smart context management with budget enforcement
+- Streaming output with real-time token generation
+- Universal model compatibility (any chat model)
+- Git integration (`/git` command suite)
+- Shell execution (`/run` command)
+- Auto-save conversations with restore
+- Per-project configuration (`.mlx-code.json`)
+- Command dispatcher architecture
+- File search (`/find`), find-replace (`/replace`), clipboard (`/copy`)
+- Repetition detection for stuck generation
+- Compact system prompt (works with small models)
+- Direct execution without env activation
 
 **🎯 Upcoming:**
-- Multi-file context priority
 - Cross-file reference understanding
 - Advanced project structure analysis
-- Git integration
 - Real-time file watching
+- Plugin system
+- Web UI interface
 
 ### How to Contribute / Test
 
@@ -1395,9 +1403,9 @@ A: Yes! Keep both in your project folder and copy whichever you need to `~/mlx-c
 
 **Made with ❤️ by developers, for developers who value privacy and local control**
 
-*Last updated: November 21, 2024*  
-*Version: 2.0 (Development)*  
-*Python: 3.12+*  
+*Last updated: February 25, 2026*
+*Version: 3.0*
+*Python: 3.12+*
 *Platform: macOS Apple Silicon*
 
 ---

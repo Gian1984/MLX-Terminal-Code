@@ -1,56 +1,22 @@
 # MLX-CODE Development Roadmap
 
-*Last Updated: November 23, 2024*
+*Last Updated: February 25, 2026*
 
 This document outlines the planned improvements, features, and enhancements for the MLX-CODE project.
 
 ---
 
-## 📢 Recent Changes (November 2024)
+## 📢 Recent Changes
 
-### Version 2.1 Release - Download Experience Overhaul
+### Version 3.0 (February 25, 2026) — Major Architecture & UX Overhaul
 
-**Release Date:** November 23, 2024
+21 improvements including streaming output, git integration, command dispatcher, and more.
+See [CHANGELOG-25-FEB-2026.md](CHANGELOG-25-FEB-2026.md) for full details.
 
-**Major Improvements:**
+### Version 2.1 (November 27, 2025) — Model Management & Terminal Input
 
-1. **Optimized Default Model**
-   - Changed from Qwen 7B (4.3GB) to Qwen 1.5B (1GB)
-   - 75% reduction in download size!
-   - Much faster first-time setup for all users
-   - Still great quality for most coding tasks
-   - Users can easily upgrade to 3B or 7B with `/q3b` or `/q7b` commands
-   - Implemented Qwen chat template for better responses
-
-2. **Smart Download Feedback**
-   - Real-time progress bars (no more hidden spinner)
-   - Download size and time estimates shown upfront
-   - Cache detection (shows if model already downloaded)
-   - Helpful tips for slow connections (< 500 KB/s)
-
-3. **Intelligent Error Handling**
-   - Network errors: Connection troubleshooting tips
-   - Disk errors: Space check instructions
-   - Permission errors: Fix commands provided
-   - Graceful Ctrl+C handling with resume instructions
-
-4. **Code Improvements**
-   - Added `is_model_cached(model_name)` helper
-   - Added `get_model_size_estimate(model_name)` helper
-   - Enhanced `ChatSession.__init__()` with better UX
-   - Comprehensive error messages with actionable solutions
-
-**User Impact:**
-- ✅ Faster installation (smaller default model)
-- ✅ Better visibility into download progress
-- ✅ Reduced frustration from network issues
-- ✅ Clear guidance when problems occur
-- ✅ Estimated 50-70% reduction in installation support requests
-
-**Files Modified:**
-- `mlx-code-v2.py` (lines 43, 537-655)
-- `README.md` (updated status, troubleshooting, recent updates)
-- `ROADMAP.md` (this file)
+20+ models, prompt-toolkit integration, model download/delete commands.
+See [CHANGELOG-27-NOV-2025.md](CHANGELOG-27-NOV-2025.md) for details.
 
 ---
 
@@ -131,7 +97,7 @@ This document outlines the planned improvements, features, and enhancements for 
   - Reduce redundant file reads
 
 ### Model Performance
-- [ ] Add streaming response support (real-time token generation)
+- [x] Add streaming response support (real-time token generation) ✅ v3.0
 - [ ] Implement response caching for repeated queries
 - [ ] Add option for batch processing multiple files
 - [ ] GPU memory optimization settings
@@ -151,12 +117,13 @@ This document outlines the planned improvements, features, and enhancements for 
   - Auto-load definition files when references are found
   - Symbol resolution across the project
 
-- [ ] **Git integration**
-  - Show git status in context
-  - Analyze git diff before commits
-  - Auto-generate commit messages
-  - Code review for staged changes
-  - Integration with GitHub/GitLab APIs
+- [x] **Git integration** ✅ v3.0
+  - ✅ Show git status in context
+  - ✅ Analyze git diff before commits
+  - ✅ Git log, branch, add, commit, stash
+  - [ ] Auto-generate commit messages
+  - [ ] Code review for staged changes
+  - [ ] Integration with GitHub/GitLab APIs
 
 ### Smart Code Analysis
 - [ ] **Static analysis integration**
@@ -171,10 +138,10 @@ This document outlines the planned improvements, features, and enhancements for 
   - Integration with security tools (bandit, semgrep)
 
 ### File Operations
-- [ ] **Batch file operations**
-  - Rename multiple files at once
-  - Refactor across multiple files
-  - Find and replace across project
+- [x] **Batch file operations** ✅ v3.0 (partial)
+  - [ ] Rename multiple files at once
+  - [ ] Refactor across multiple files
+  - ✅ Find and replace in files (`/replace` command)
 
 - [ ] **File watcher**
   - Real-time monitoring of file changes
@@ -186,20 +153,21 @@ This document outlines the planned improvements, features, and enhancements for 
 ## 🎨 Priority 5: User Experience Improvements
 
 ### Interactive Features
-- [ ] **Autocomplete for commands**
-  - Tab completion for file paths
-  - Command history with arrow keys
-  - Suggestions based on context
+- [x] **Autocomplete for commands** ✅ v2.1
+  - ✅ Tab completion for commands
+  - ✅ Command history with arrow keys
+  - [ ] Suggestions based on context
 
-- [ ] **Rich terminal output**
-  - Better syntax highlighting for code blocks
-  - Progress bars for long operations
-  - Interactive file selector for multi-file operations
+- [x] **Rich terminal output** ✅ v3.0
+  - ✅ Syntax highlighting for code blocks (StreamRenderer)
+  - ✅ Markdown rendering (headers, lists, inline formatting)
+  - [ ] Interactive file selector for multi-file operations
 
-- [ ] **Session management**
-  - Save/load named sessions
-  - Session history browser
-  - Quick switch between different projects
+- [x] **Session management** ✅ v3.0 (partial)
+  - ✅ Auto-save/restore sessions
+  - [ ] Save/load named sessions
+  - [ ] Session history browser
+  - [ ] Quick switch between different projects
 
 ### Configuration
 - [ ] **User preferences file**
@@ -208,10 +176,10 @@ This document outlines the planned improvements, features, and enhancements for 
   - File exclusion patterns (.gitignore style)
   - Custom color schemes
 
-- [ ] **Per-project configuration**
-  - `.mlx-code.json` in project root
-  - Project-specific models and settings
-  - Custom commands/aliases per project
+- [x] **Per-project configuration** ✅ v3.0
+  - ✅ `.mlx-code.json` in project root
+  - ✅ Project-specific models and settings
+  - [ ] Custom commands/aliases per project
 
 ---
 
@@ -422,23 +390,28 @@ This document outlines the planned improvements, features, and enhancements for 
 
 ## 📋 Version Planning
 
-### V2.1 (Near-term)
-- Documentation fixes
-- Testing framework
-- Performance optimizations
-- PyPI package
+### V3.0 (Current — February 2026) ✅
+- ✅ Streaming output
+- ✅ Git integration
+- ✅ Command dispatcher architecture
+- ✅ Auto-save, per-project config
+- ✅ 7 new commands
 
-### V2.5 (Medium-term)
-- Git integration
+### V3.5 (Near-term)
+- Testing framework (pytest)
+- PyPI package distribution
 - Enhanced context management
-- Web interface (beta)
 - Plugin system
 
-### V3.0 (Long-term)
-- Multi-model support
+### V4.0 (Medium-term)
+- Multi-model support / ensemble
 - Vector database integration
+- Web interface (beta)
+
+### V5.0 (Long-term)
 - Full IDE integrations
 - Team collaboration features
+- Real-time file watching
 
 ---
 

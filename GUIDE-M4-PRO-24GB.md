@@ -621,6 +621,8 @@ AVOID:      /q32b       Too large - CRASHES ❌
 
 ---
 
-**Last Updated:** November 27, 2025
-**Version:** 2.1
-**Tested On:** M4 Pro 24GB with macOS Sequoia 15.1
+**Last Updated:** February 25, 2026
+**Version:** 3.0
+**Tested On:** M4 Pro 24GB with macOS Sequoia
+
+**What's New in v3.0:** Streaming output, git integration, 7 new commands, auto-save, no env activation needed. See [CHANGELOG-25-FEB-2026.md](CHANGELOG-25-FEB-2026.md).

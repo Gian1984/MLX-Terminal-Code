@@ -206,6 +206,7 @@ Use DeepSeek V2 instead:
 
 ### Supporting Docs:
 - ✅ [README.md](README.md) - Main documentation
+- ✅ [CHANGELOG-25-FEB-2026.md](CHANGELOG-25-FEB-2026.md) - v3.0 changes (latest)
 - ✅ [CHANGELOG-27-NOV-2025.md](CHANGELOG-27-NOV-2025.md) - v2.1 changes
 - ✅ [DOWNLOAD-MODELS.md](DOWNLOAD-MODELS.md) - Faster downloads with git-lfs
 - ✅ [quick-start.md](quick-start.md) - Quick start guide
@@ -239,7 +240,7 @@ Use DeepSeek V2 instead:
 **All documentation:**
 - 🌍 Professional English
 - 📊 Based on actual testing
-- ✅ Up-to-date with v2.1
+- ✅ Up-to-date with v3.0
 - 🚀 Production-ready
 
 ---

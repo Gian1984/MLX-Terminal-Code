@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/gianlucatiengo/.mlx-env/bin/python3
 # mlx-code-pro: intelligent local coding assistant with context awareness
 # Requires: pip install mlx-lm pillow prompt-toolkit
 
@@ -19,7 +19,7 @@ from typing import List, Tuple, Optional, Dict, Set
 from pathlib import Path
 
 try:
-    from mlx_lm import load, generate
+    from mlx_lm import load, stream_generate
 except ImportError:
     print("ERROR: mlx-lm not found. Install with: pip install mlx-lm")
     sys.exit(1)
@@ -53,6 +53,7 @@ LOG_DIR = os.path.expanduser("~/.mlx-code")
 BACKUP_DIR = os.path.join(LOG_DIR, "backups")
 HISTORY_FILE = os.path.join(LOG_DIR, "history.log")
 CONFIG_FILE = os.path.join(LOG_DIR, "config.json")
+AUTOSAVE_FILE = os.path.join(LOG_DIR, "autosave.json")
 
 DEFAULT_MODEL = "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit"  # 1.5B - lightweight demo model (upgrade recommended)
 
@@ -89,6 +90,7 @@ MODEL_ALIASES = {
 
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_CTX_CHARS = 24000
+MAX_FILE_CONTEXT_CHARS = 15000  # Max chars for all loaded files combined in prompt
 
 # File extensions for different purposes
 CODE_EXTENSIONS = {
@@ -212,13 +214,32 @@ def log_operation(operation: str, details: str):
 
 
 def load_config() -> Dict:
-    """Load user configuration."""
+    """Load user configuration (global)."""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
+    return {}
+
+
+def load_project_config(cwd: str) -> Dict:
+    """Load per-project config from .mlx-code.json if present.
+
+    Supported fields: model, max_tokens, ctx_chars, auto_context.
+    Project config overrides global config.
+    """
+    project_config_path = os.path.join(cwd, ".mlx-code.json")
+    if os.path.exists(project_config_path):
+        try:
+            with open(project_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Only allow known keys
+            allowed = {"model", "max_tokens", "ctx_chars", "auto_context"}
+            return {k: v for k, v in data.items() if k in allowed}
+        except Exception as e:
+            print(f"{FG_YELLOW}Warning: Could not read .mlx-code.json: {e}{RESET}")
     return {}
 
 
@@ -229,6 +250,44 @@ def save_config(config: Dict):
             json.dump(config, f, indent=2)
     except Exception as e:
         print(f"{FG_YELLOW}Warning: Could not save config: {e}{RESET}")
+
+
+def autosave_conversation(session_history: List[Tuple[str, str]], model_name: str, cwd: str):
+    """Auto-save conversation to disk after each exchange."""
+    try:
+        data = {
+            "model": model_name,
+            "cwd": cwd,
+            "timestamp": datetime.now().isoformat(),
+            "history": [{"role": role, "content": content} for role, content in session_history],
+        }
+        with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass  # Silent - don't interrupt user flow
+
+
+def load_autosave() -> Optional[Dict]:
+    """Load autosaved conversation if it exists."""
+    if not os.path.exists(AUTOSAVE_FILE):
+        return None
+    try:
+        with open(AUTOSAVE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("history"):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def clear_autosave():
+    """Remove autosave file (on clean exit)."""
+    try:
+        if os.path.exists(AUTOSAVE_FILE):
+            os.remove(AUTOSAVE_FILE)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +394,7 @@ def should_auto_load_file(filepath: str) -> bool:
         try:
             size = os.path.getsize(filepath)
             return size < 50000  # 50KB limit for auto-load
-        except:
+        except Exception:
             return False
 
     return False
@@ -410,8 +469,11 @@ def load_project_context(cwd: str) -> Dict[str, str]:
         filepath = os.path.join(cwd, filename)
         if os.path.exists(filepath) and is_safe_path(filepath):
             try:
+                file_size = os.path.getsize(filepath)
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read(5000)  # First 5KB
+                    if file_size > 5000:
+                        content += f"\n\n[... TRUNCATED — showing 5KB of {file_size / 1024:.1f}KB total ...]"
                     context[filename] = content
             except Exception:
                 continue
@@ -697,7 +759,7 @@ def list_installed_models() -> List[Tuple[str, str, str]]:
                             filepath = os.path.join(dirpath, filename)
                             try:
                                 total_size += os.path.getsize(filepath)
-                            except:
+                            except Exception:
                                 pass
 
                     # Format size
@@ -782,6 +844,7 @@ class ChatSession:
             "files_modified": 0,
             "files_auto_loaded": 0,
             "tokens_generated": 0,
+            "prompt_tokens": 0,
         }
 
         # Model loading with better feedback
@@ -856,75 +919,19 @@ class ChatSession:
         self.system_prompt = self._build_system_prompt()
 
     def _build_system_prompt(self) -> str:
+        today = time.strftime("%Y-%m-%d")
         return textwrap.dedent(
-            f"""
-            You are MLX-CODE-PRO, an advanced AI coding assistant with full project context awareness.
+            f"""You are MLX-CODE-PRO, an AI coding assistant. Today is {today}.
+You have access to the user's project files. Answer questions and help with code.
 
-            CAPABILITIES:
-            - You can read and analyze files automatically when users reference them
-            - You understand project structure and dependencies
-            - You provide context-aware suggestions based on the entire codebase
-            - You can view and describe images in the project
+When editing files, use this format:
+```file:path/to/file.py
+complete file content here
+```
+Use relative paths. Provide COMPLETE file content, not diffs.
+Do NOT use ```python or ```js for file edits — only ```file:filename.
 
-            CORE RULES:
-            - All operations are restricted to "{ROOT_DIR}"
-            - Be proactive: if a user asks about a file, assume you have its content in context
-            - Provide detailed, production-ready code with proper error handling
-            - Always explain your reasoning and consider edge cases
-
-            CONTEXT AWARENESS:
-            - Files mentioned in conversation are automatically loaded into your context
-            - You have access to project structure and key configuration files
-            - Use this context to provide more accurate and relevant suggestions
-
-            FILE EDITING PROTOCOL:
-            CRITICAL: When user asks to create, modify, or edit files, you MUST use the file: format.
-
-            For normal questions/discussions: use regular markdown.
-            For file modifications: use the file: format below.
-
-            CORRECT format for file modifications (note the "file:" prefix):
-
-            ```file:path/to/file.py
-            def hello():
-                print("Hello World")
-            ```
-
-            WRONG - do NOT use language names for file modifications:
-            ```python
-            def hello():
-                print("Hello World")
-            ```
-
-            Rules:
-            - Use relative paths from current directory
-            - Provide COMPLETE file content, not diffs
-            - Multiple file blocks allowed
-            - The syntax is ```file:filename NOT ```language
-            - DO NOT use file blocks for answering questions
-
-            CODE QUALITY STANDARDS:
-            - Follow language-specific best practices and style guides
-            - Include appropriate error handling and validation
-            - Add meaningful comments for complex logic
-            - Consider performance, security, and maintainability
-            - Write testable code with clear separation of concerns
-
-            SECURITY:
-            - Never suggest code with obvious vulnerabilities
-            - Warn about potential security issues in existing code
-            - Be cautious with file operations, credentials, and user input
-            - Recommend secure alternatives when applicable
-
-            COMMUNICATION:
-            - Be concise but thorough
-            - Use markdown for formatting
-            - Provide working examples when helpful
-            - Ask for clarification when requirements are ambiguous
-            - NEVER make up or hallucinate file names or content
-            - If asked about files you don't have in context, say so clearly
-            - For directory listings, tell users to use the /ls command
-            """
+Be concise. Use markdown. Never hallucinate file names."""
         ).strip()
 
     def load_project_context(self, cwd: str):
@@ -957,8 +964,12 @@ class ChatSession:
 
             if should_auto_load_file(filepath):
                 try:
+                    file_size = os.path.getsize(filepath)
                     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read(10000)  # First 10KB
+                        if file_size > 10000:
+                            content += f"\n\n[... TRUNCATED — showing 10KB of {file_size / 1024:.1f}KB total ...]"
+                            print(f"{FG_YELLOW}  ⚠ {os.path.basename(filepath)} truncated ({file_size / 1024:.1f}KB > 10KB limit){RESET}")
                         self.opened_files[filepath] = content
                         loaded.append(filepath)
                         self.stats["files_auto_loaded"] += 1
@@ -987,7 +998,7 @@ class ChatSession:
             files_in_dir = os.listdir(cwd)[:10]  # First 10 files
             if files_in_dir:
                 parts.append(f"Files in current directory: {', '.join(files_in_dir)}")
-        except:
+        except Exception:
             pass
 
         if project_type:
@@ -1001,43 +1012,80 @@ class ChatSession:
                 parts.append(f"\n--- {filename} ---")
                 parts.append(content[:500] + ("..." if len(content) > 500 else ""))
 
-        # Opened files
+        # Opened files — with total budget enforcement
         if self.opened_files:
-            parts.append(f"\nFiles in context ({len(self.opened_files)}):")
-            for filepath, content in list(self.opened_files.items())[:5]:  # Limit to 5
+            budget_remaining = MAX_FILE_CONTEXT_CHARS
+            files_included = 0
+            # Iterate in reverse order (most recently added first = most relevant)
+            file_items = list(self.opened_files.items())
+            file_items.reverse()
+
+            parts.append(f"\nFiles in context ({len(self.opened_files)} loaded, budget {MAX_FILE_CONTEXT_CHARS} chars):")
+
+            for filepath, content in file_items:
+                if budget_remaining <= 0:
+                    skipped = len(file_items) - files_included
+                    parts.append(f"\n[... {skipped} more file(s) skipped — context budget exhausted ...]")
+                    break
+
                 rel_path = os.path.relpath(filepath, ROOT_DIR)
                 parts.append(f"\n--- {rel_path} ---")
+
                 if content.startswith("[Image:"):
                     parts.append(content)
+                    files_included += 1
+                    continue
+
+                # Fit within remaining budget
+                max_for_file = min(len(content), budget_remaining, 3000)
+                if len(content) > max_for_file:
+                    preview = content[:max_for_file] + f"\n[... TRUNCATED — {len(content)} chars total, showing {max_for_file} ...]"
                 else:
-                    preview = content[:800] + ("..." if len(content) > 800 else "")
-                    parts.append(preview)
+                    preview = content
+                parts.append(preview)
+                budget_remaining -= len(preview)
+                files_included += 1
 
         return "\n".join(parts)
 
     def _build_prompt(self, user_message: str, cwd: str) -> str:
-        """Build complete prompt with system + context + history using Qwen chat template."""
+        """Build complete prompt using the tokenizer's native chat template.
+
+        This works correctly with any model (Qwen, Llama, Mistral, Phi, DeepSeek, etc.)
+        by delegating template formatting to the tokenizer itself.
+        """
         context = self._build_context_section(cwd)
-        user_with_ctx = f"{context}\n\n--- User Message ---\n{user_message}"
 
-        # Use Qwen chat template format for better responses
-        parts: List[str] = []
+        # Put context in the system prompt to avoid repeating it every turn
+        system_with_ctx = f"{self.system_prompt}\n\n{context}"
 
-        # System message
-        parts.append(f"<|im_start|>system\n{self.system_prompt}<|im_end|>")
+        # Build messages list in OpenAI-compatible format
+        messages: List[Dict[str, str]] = []
+        messages.append({"role": "system", "content": system_with_ctx})
 
         # Add relevant history (smart prioritization)
         for role, txt in self._get_prioritized_history():
-            if role == "user":
-                parts.append(f"<|im_start|>user\n{txt}<|im_end|>")
-            else:
-                parts.append(f"<|im_start|>assistant\n{txt}<|im_end|>")
+            messages.append({"role": role, "content": txt})
 
-        # Current user message
-        parts.append(f"<|im_start|>user\n{user_with_ctx}<|im_end|>")
-        parts.append("<|im_start|>assistant")
+        # Current user message — clean, no context duplication
+        messages.append({"role": "user", "content": user_message})
 
-        return "\n".join(parts)
+        # Use tokenizer's native chat template
+        try:
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except Exception:
+            # Fallback: manual Qwen-style template for older tokenizers
+            parts: List[str] = []
+            for msg in messages:
+                parts.append(f"<|im_start|>{msg['role']}\n{msg['content']}<|im_end|>")
+            parts.append("<|im_start|>assistant")
+            prompt = "\n".join(parts)
+
+        return prompt
 
     def _get_prioritized_history(self) -> List[Tuple[str, str]]:
         """Get history with intelligent prioritization."""
@@ -1089,7 +1137,7 @@ class ChatSession:
                 break
 
     def ask(self, user_message: str, cwd: str) -> str:
-        """Send query with automatic context loading."""
+        """Send query with automatic context loading and streaming output."""
         self.last_query = user_message
         self.stats["queries"] += 1
 
@@ -1099,34 +1147,87 @@ class ChatSession:
         # Build and send prompt
         prompt = self._build_prompt(user_message, cwd)
 
-        spinner = Spinner("Generating response")
-        spinner.start()
+        # Count prompt tokens for stats
+        try:
+            prompt_tokens = len(self.tokenizer.encode(prompt))
+            self.stats["prompt_tokens"] += prompt_tokens
+        except Exception:
+            prompt_tokens = 0
+
+        # Stream response token by token with markdown rendering
+        response_parts: List[str] = []
+        token_count = 0
+        start_time = time.time()
+        renderer = StreamRenderer()
+
+        # Repetition detection: track recent output to detect stuck loops
+        recent_window = ""
+        repetition_detected = False
+
+        # Show thinking indicator while prompt is processed
+        print(f"{DIM}Thinking...{RESET}", end="", flush=True)
 
         try:
-            response = generate(
+            first_token = True
+            for chunk in stream_generate(
                 self.model,
                 self.tokenizer,
                 prompt=prompt,
                 max_tokens=self.max_tokens,
-                verbose=False,
-            )
-            spinner.stop()
+            ):
+                if first_token:
+                    # Clear "Thinking..." and start showing response
+                    print(f"\r{' ' * 20}\r", end="", flush=True)
+                    first_token = False
+                text = chunk.text
+                # Stop at end-of-turn tokens (model-agnostic cleanup)
+                if any(stop in text for stop in ["<|im_end|>", "<|im_start|>", "<|eot_id|>", "</s>"]):
+                    for stop in ["<|im_end|>", "<|im_start|>", "<|eot_id|>", "</s>"]:
+                        text = text.split(stop)[0]
+                    if text:
+                        renderer.feed(text)
+                        response_parts.append(text)
+                    break
+                renderer.feed(text)
+                response_parts.append(text)
+                token_count += 1
+
+                # Repetition detection — check every 50 tokens
+                if token_count % 50 == 0 and token_count >= 150:
+                    full_text = "".join(response_parts)
+                    tail = full_text[-300:]  # Last 300 chars
+                    # Check if a pattern of 30+ chars repeats 3+ times
+                    for pat_len in range(30, 80):
+                        if pat_len > len(tail) // 3:
+                            break
+                        pattern = tail[-pat_len:]
+                        if tail.count(pattern) >= 3:
+                            repetition_detected = True
+                            break
+                    if repetition_detected:
+                        print(f"\n{FG_YELLOW}(repetition detected — stopping generation){RESET}")
+                        break
+        except KeyboardInterrupt:
+            print(f"\n{FG_YELLOW}(generation interrupted){RESET}")
         except Exception as e:
-            spinner.stop()
+            print(f"\n{FG_RED}Error generating response: {e}{RESET}")
             return f"Error generating response: {e}"
 
-        if not isinstance(response, str):
-            response = str(response)
+        renderer.flush()
+        elapsed = time.time() - start_time
+        speed = token_count / elapsed if elapsed > 0 else 0
+        print(f"\n{DIM}[{token_count} tokens, {speed:.1f} tok/s]{RESET}")
 
-        # Clean up Qwen chat template tokens from response
-        response = response.split("<|im_end|>")[0].strip()
-        response = response.split("<|im_start|>")[0].strip()
+        response = "".join(response_parts).strip()
 
         # Update stats and history
-        self.stats["tokens_generated"] += len(response.split())
+        self.stats["tokens_generated"] += token_count
         self.history.append(("user", user_message))
         self.history.append(("assistant", response))
         self._trim_history()
+
+        # Auto-save conversation to disk
+        autosave_conversation(self.history, self.model_name, ROOT_DIR)
 
         return response
 
@@ -1174,8 +1275,19 @@ def extract_code_blocks(text: str):
     return blocks
 
 
+def _render_inline_markdown(line: str) -> str:
+    """Apply inline markdown formatting: **bold**, *italic*, `code`."""
+    # Inline code: `text` -> magenta
+    line = re.sub(r'`([^`]+)`', f'{FG_MAGENTA}\\1{RESET}', line)
+    # Bold: **text** -> bold
+    line = re.sub(r'\*\*([^*]+)\*\*', f'{BOLD}\\1{RESET}', line)
+    # Italic: *text* -> dim (avoid matching bullet lists)
+    line = re.sub(r'(?<!\*)\*([^*\n]+)\*(?!\*)', f'{DIM}\\1{RESET}', line)
+    return line
+
+
 def print_colored_response(text: str):
-    """Print response with markdown formatting."""
+    """Print response with proper markdown formatting."""
     lines = text.splitlines()
     in_code = False
     for line in lines:
@@ -1187,12 +1299,97 @@ def print_colored_response(text: str):
         if in_code:
             print(FG_MAGENTA + line + RESET)
         else:
-            if line.startswith("#"):
+            # Headers
+            if re.match(r'^#{1,6}\s', line):
                 print(BOLD + FG_CYAN + line + RESET)
-            elif line.startswith("**") or line.startswith("*"):
-                print(FG_CYAN + line + RESET)
+            # Bullet lists (-, *, +)
+            elif re.match(r'^(\s*)([-*+])\s', line):
+                m = re.match(r'^(\s*)([-*+])\s(.*)', line)
+                indent, bullet, content = m.group(1), m.group(2), m.group(3)
+                print(f"{indent}{FG_GREEN}{bullet}{RESET} {_render_inline_markdown(content)}")
+            # Numbered lists
+            elif re.match(r'^(\s*)\d+[.)]\s', line):
+                m = re.match(r'^(\s*)(\d+[.)]\s)(.*)', line)
+                indent, num, content = m.group(1), m.group(2), m.group(3)
+                print(f"{indent}{FG_GREEN}{num}{RESET}{_render_inline_markdown(content)}")
+            # Horizontal rules
+            elif re.match(r'^---+$|^\*\*\*+$|^___+$', line.strip()):
+                print(DIM + line + RESET)
+            # Blockquotes
+            elif line.startswith('>'):
+                print(f"{FG_YELLOW}│{RESET} {DIM}{line[1:].strip()}{RESET}")
+            # Normal text
             else:
-                print(FG_CYAN + line + RESET)
+                print(_render_inline_markdown(line))
+
+
+class StreamRenderer:
+    """Line-buffered markdown renderer for streaming output."""
+
+    def __init__(self):
+        self.line_buffer = ""
+        self.in_code_block = False
+
+    def feed(self, text: str):
+        """Feed a chunk of text. Renders complete lines with markdown colors."""
+        self.line_buffer += text
+
+        while "\n" in self.line_buffer:
+            line, self.line_buffer = self.line_buffer.split("\n", 1)
+            self._render_line(line)
+            print(flush=True)
+
+        # Flush partial lines to show streaming in real-time
+        sys.stdout.flush()
+
+    def flush(self):
+        """Flush any remaining text in the buffer."""
+        if self.line_buffer:
+            self._render_line(self.line_buffer)
+            self.line_buffer = ""
+            sys.stdout.flush()
+
+    def _render_line(self, line: str):
+        """Render a single line with markdown formatting."""
+        stripped = line.strip()
+
+        # Code block delimiters
+        if stripped.startswith("```"):
+            print(FG_YELLOW + line + RESET, end="")
+            self.in_code_block = not self.in_code_block
+            return
+
+        # Inside code block
+        if self.in_code_block:
+            print(FG_MAGENTA + line + RESET, end="")
+            return
+
+        # Headers
+        if re.match(r'^#{1,6}\s', line):
+            print(BOLD + FG_CYAN + line + RESET, end="")
+        # Bullet lists
+        elif re.match(r'^(\s*)([-*+])\s', line):
+            m = re.match(r'^(\s*)([-*+])\s(.*)', line)
+            if m:
+                print(f"{m.group(1)}{FG_GREEN}{m.group(2)}{RESET} {_render_inline_markdown(m.group(3))}", end="")
+            else:
+                print(line, end="")
+        # Numbered lists
+        elif re.match(r'^(\s*)\d+[.)]\s', line):
+            m = re.match(r'^(\s*)(\d+[.)]\s)(.*)', line)
+            if m:
+                print(f"{m.group(1)}{FG_GREEN}{m.group(2)}{RESET}{_render_inline_markdown(m.group(3))}", end="")
+            else:
+                print(line, end="")
+        # Blockquotes
+        elif line.startswith('>'):
+            print(f"{FG_YELLOW}│{RESET} {DIM}{line[1:].strip()}{RESET}", end="")
+        # Horizontal rules
+        elif re.match(r'^---+$|^\*\*\*+$|^___+$', stripped):
+            print(DIM + line + RESET, end="")
+        # Normal text with inline formatting
+        else:
+            print(_render_inline_markdown(line), end="")
 
 
 def print_diff(old: str, new: str, path_display: str):
@@ -1526,16 +1723,25 @@ def handle_context(parts: List[str], session: ChatSession, cwd: str):
         print(f"  Project files: {len(session.project_context)}")
         print(f"  Loaded files: {len(session.opened_files)}")
 
+        # Show context budget usage
+        total_chars = sum(len(c) for c in session.opened_files.values())
+        pct = (total_chars / MAX_FILE_CONTEXT_CHARS * 100) if MAX_FILE_CONTEXT_CHARS > 0 else 0
+        bar_len = 20
+        filled = int(bar_len * min(pct, 100) / 100)
+        bar = "█" * filled + "░" * (bar_len - filled)
+        color = FG_GREEN if pct < 70 else (FG_YELLOW if pct < 90 else FG_RED)
+        print(f"  Context budget: {color}{bar} {total_chars}/{MAX_FILE_CONTEXT_CHARS} chars ({pct:.0f}%){RESET}")
+
         if session.project_context:
             print(f"\n  {FG_CYAN}Project context files:{RESET}")
-            for name in session.project_context.keys():
-                print(f"    • {name}")
+            for name, content in session.project_context.items():
+                print(f"    • {name} ({len(content)} chars)")
 
         if session.opened_files:
             print(f"\n  {FG_CYAN}Opened files:{RESET}")
-            for path in session.opened_files.keys():
+            for path, content in session.opened_files.items():
                 rel = os.path.relpath(path, ROOT_DIR)
-                print(f"    • {rel}")
+                print(f"    • {rel} ({len(content)} chars)")
 
         print()
         return
@@ -1607,7 +1813,8 @@ def handle_stats(session: ChatSession):
     print(f"  Queries sent:           {session.stats['queries']}")
     print(f"  Files modified:         {session.stats['files_modified']}")
     print(f"  Files auto-loaded:      {session.stats['files_auto_loaded']}")
-    print(f"  Tokens generated:       ~{session.stats['tokens_generated']}")
+    print(f"  Prompt tokens (total):  {session.stats['prompt_tokens']}")
+    print(f"  Generated tokens:       {session.stats['tokens_generated']}")
     print(f"  Files in context:       {len(session.opened_files)}")
     print(f"  Project context files:  {len(session.project_context)}")
     print(f"  History entries:        {len(session.history)}")
@@ -1680,8 +1887,18 @@ def print_help():
     print(f"  {FG_GREEN}/tree [path]{RESET}           Show tree")
     print()
     print("SEARCH & COMPARE:")
-    print(f"  {FG_GREEN}/grep <pattern>{RESET}        Search in files")
+    print(f"  {FG_GREEN}/find <pattern>{RESET}        Find files by name (glob)")
+    print(f"  {FG_GREEN}/grep <pattern>{RESET}        Search in file contents")
     print(f"  {FG_GREEN}/diff <f1> <f2>{RESET}        Compare files")
+    print(f"  {FG_GREEN}/replace <f> \"a\" \"b\"{RESET}  Find and replace in file")
+    print()
+    print("GIT:")
+    print(f"  {FG_GREEN}/git{RESET}                   Show git subcommands")
+    print(f"  {FG_GREEN}/git status{RESET}             Show changed files")
+    print(f"  {FG_GREEN}/git diff{RESET}               Show changes")
+    print(f"  {FG_GREEN}/git log{RESET}                Recent commits")
+    print(f"  {FG_GREEN}/git add <file>{RESET}         Stage file")
+    print(f"  {FG_GREEN}/git commit <msg>{RESET}       Commit changes")
     print()
     print("TEMPLATES:")
     print(f"  {FG_GREEN}/template{RESET}              List templates")
@@ -1689,11 +1906,17 @@ def print_help():
     print(f"    Available: test, doc, refactor, review, optimize, explain, debug, secure")
     print()
     print("BACKUP & HISTORY:")
+    print(f"  {FG_GREEN}/undo{RESET}                  Undo last file modification")
     print(f"  {FG_GREEN}/backups [file]{RESET}        List backups")
     print(f"  {FG_GREEN}/restore <bk> <file>{RESET}   Restore from backup")
     print(f"  {FG_GREEN}/save [file]{RESET}           Export chat")
     print()
+    print("EXECUTION:")
+    print(f"  {FG_GREEN}/run <command>{RESET}         Execute a shell command")
+    print(f"  {FG_GREEN}/run <cmd> --ai{RESET}        Run and send output to AI")
+    print()
     print("UTILITIES:")
+    print(f"  {FG_GREEN}/copy{RESET}                  Copy last code block to clipboard")
     print(f"  {FG_GREEN}/last{RESET}                  Repeat last query")
     print(f"  {FG_GREEN}/edit{RESET}                  Open last file in $EDITOR")
     print(f"  {FG_GREEN}/stats{RESET}                 Show statistics")
@@ -1736,6 +1959,864 @@ def print_status(model_name: str, cwd: str, project_type: Optional[str], session
 
 
 # ---------------------------------------------------------------------------
+# APP STATE (shared mutable state for command handlers)
+# ---------------------------------------------------------------------------
+
+class AppState:
+    """Mutable application state shared across command handlers."""
+
+    def __init__(self, model_name: str, max_tokens: int, ctx_chars: int, cwd: str, session: ChatSession):
+        self.model_name = model_name
+        self.max_tokens = max_tokens
+        self.ctx_chars = ctx_chars
+        self.cwd = cwd
+        self.session = session
+        self.project_type = detect_project_type(cwd)
+        self.buffer: List[str] = []
+
+    def reload_session(self):
+        """Create a new ChatSession preserving history and context."""
+        old_history = self.session.history[:]
+        old_files = dict(self.session.opened_files)
+        old_stats = dict(self.session.stats)
+        old_auto_ctx = self.session.auto_context_enabled
+
+        self.session = ChatSession(self.model_name, self.max_tokens, self.ctx_chars)
+        self.session.history = old_history
+        self.session.opened_files = old_files
+        self.session.stats = old_stats
+        self.session.auto_context_enabled = old_auto_ctx
+        self.session.load_project_context(self.cwd)
+        self.project_type = detect_project_type(self.cwd)
+
+
+# ---------------------------------------------------------------------------
+# COMMAND HANDLERS (each returns a signal: None=continue, "break"=exit)
+# ---------------------------------------------------------------------------
+
+def cmd_exit(parts: List[str], state: AppState) -> Optional[str]:
+    config = {
+        "model": state.model_name,
+        "max_tokens": state.max_tokens,
+        "ctx_chars": state.ctx_chars,
+    }
+    save_config(config)
+    clear_autosave()
+    print("Configuration saved. 👋 Goodbye!")
+    return "break"
+
+
+def cmd_help(parts: List[str], state: AppState) -> None:
+    print_help()
+    print_status(state.model_name, state.cwd, state.project_type, state.session)
+
+
+def cmd_clear(parts: List[str], state: AppState) -> None:
+    state.session.history.clear()
+    print(f"{FG_GREEN}✓ Chat history cleared{RESET}")
+
+
+def cmd_model(parts: List[str], state: AppState) -> None:
+    if len(parts) < 2:
+        print(f"{FG_RED}Usage: /model <huggingface-model-id>{RESET}")
+        return
+    state.model_name = parts[1].strip()
+    state.reload_session()
+    print_status(state.model_name, state.cwd, state.project_type, state.session)
+
+
+def cmd_models(parts: List[str], state: AppState) -> None:
+    print(f"\n{FG_CYAN}{'═' * 80}{RESET}")
+    print(f"{FG_CYAN}{BOLD}📦 Available Models{RESET}")
+    print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
+
+    models = list_available_models()
+    categories = {
+        "Qwen Coder (Recommended for Code)": ["q1.5b", "q3b", "q7b", "q14b", "q32b"],
+        "DeepSeek Coder (Excellent)": ["ds1.3b", "ds6.7b", "ds", "deepseek"],
+        "Mistral (Versatile)": ["mistral", "m7b"],
+        "Llama 3 (Strong Reasoning)": ["llama3-8b", "l3-8b"],
+        "Phi (Efficient)": ["phi3", "phi"],
+        "CodeLlama (Code Specialist)": ["codellama", "cl13b"],
+    }
+
+    for category, aliases in categories.items():
+        print(f"{FG_YELLOW}{BOLD}{category}{RESET}")
+        for alias in aliases:
+            if alias in models:
+                model = models[alias]
+                status = f"{FG_GREEN}✓ Installed{RESET}" if model["cached"] else f"{FG_RED}✗ Not installed{RESET}"
+                print(f"  {FG_GREEN}/{alias:12}{RESET}  {model['size']:>7}  {model['ram']:>10} RAM  {status}")
+        print()
+
+    print(f"{FG_CYAN}💡 Usage:{RESET}")
+    print(f"  • Switch model: {FG_GREEN}/<alias>{RESET} (e.g., /q32b)")
+    print(f"  • Download: {FG_GREEN}/download <alias>{RESET} (e.g., /download q32b)")
+    print(f"  • Delete: {FG_GREEN}/delete <alias>{RESET}")
+    print(f"\n{FG_CYAN}{'═' * 80}{RESET}\n")
+
+
+def cmd_installed(parts: List[str], state: AppState) -> None:
+    installed = list_installed_models()
+    if not installed:
+        print(f"\n{FG_YELLOW}No models installed yet.{RESET}")
+        print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}\n")
+        return
+
+    print(f"\n{FG_CYAN}{'═' * 80}{RESET}")
+    print(f"{FG_CYAN}{BOLD}💾 Installed Models{RESET}")
+    print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
+
+    total_size = 0
+    for m_name, dir_name, size_str in installed:
+        size_gb = float(size_str.replace("GB", ""))
+        total_size += size_gb
+
+        alias = None
+        for a, full_name in MODEL_ALIASES.items():
+            if full_name == m_name:
+                alias = f"/{a}"
+                break
+
+        alias_str = f"{FG_GREEN}{alias}{RESET}" if alias else ""
+        print(f"  {FG_CYAN}{m_name:55}{RESET} {size_str:>8}  {alias_str}")
+
+    print(f"\n{FG_YELLOW}Total disk usage: {total_size:.2f}GB{RESET}")
+    print(f"{FG_CYAN}Cache location: ~/.cache/huggingface/hub/{RESET}")
+    print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
+
+
+def cmd_download(parts: List[str], state: AppState) -> None:
+    if len(parts) < 2:
+        print(f"{FG_RED}Usage: /download <model-alias>{RESET}")
+        print(f"{FG_CYAN}Example: /download q32b{RESET}")
+        print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
+        return
+
+    alias = parts[1].lower()
+    if alias not in MODEL_ALIASES:
+        print(f"{FG_RED}Unknown model alias: {alias}{RESET}")
+        print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
+        return
+
+    target_model = MODEL_ALIASES[alias]
+
+    if is_model_cached(target_model):
+        print(f"{FG_YELLOW}Model {alias} is already downloaded!{RESET}")
+        ans = input(f"{FG_YELLOW}Re-download anyway? [y/N] {RESET}").strip().lower()
+        if ans != 'y':
+            return
+
+    size = get_model_size_estimate(target_model)
+    ram = get_model_ram_requirement(target_model)
+
+    print(f"\n{FG_CYAN}{'═' * 70}{RESET}")
+    print(f"{FG_CYAN}📥 Download Model: {FG_GREEN}/{alias}{RESET}")
+    print(f"{FG_CYAN}{'═' * 70}{RESET}")
+    print(f"  Model: {target_model}")
+    print(f"  Size: {size}")
+    print(f"  RAM needed: {ram}")
+    print(f"{FG_CYAN}{'═' * 70}{RESET}\n")
+
+    confirm = input(f"{FG_YELLOW}Download this model? [y/N] {RESET}").strip().lower()
+    if confirm != 'y':
+        print(f"{FG_CYAN}Download cancelled.{RESET}")
+        return
+
+    print(f"\n{FG_CYAN}Starting download...{RESET}\n")
+    success = download_model_with_git_lfs(target_model)
+
+    if not success:
+        print(f"{FG_CYAN}Falling back to standard download...{RESET}\n")
+        try:
+            spinner = Spinner("Downloading model")
+            spinner.start()
+            _model, _tokenizer = load(target_model)
+            spinner.stop()
+            print(f"{FG_GREEN}✅ Model downloaded successfully!{RESET}\n")
+            del _model, _tokenizer
+        except Exception as e:
+            spinner.stop()
+            print(f"{FG_RED}❌ Download failed: {e}{RESET}\n")
+
+
+def cmd_delete(parts: List[str], state: AppState) -> None:
+    if len(parts) < 2:
+        print(f"{FG_RED}Usage: /delete <model-alias>{RESET}")
+        print(f"{FG_CYAN}Example: /delete q3b{RESET}")
+        print(f"{FG_CYAN}Use {FG_GREEN}/installed{FG_CYAN} to see installed models{RESET}")
+        return
+
+    alias = parts[1].lower()
+    if alias not in MODEL_ALIASES:
+        print(f"{FG_RED}Unknown model alias: {alias}{RESET}")
+        print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
+        return
+
+    target_model = MODEL_ALIASES[alias]
+    if not is_model_cached(target_model):
+        print(f"{FG_YELLOW}Model {alias} is not installed.{RESET}")
+        return
+
+    print(f"\n{FG_YELLOW}⚠️  WARNING: This will delete the model from disk!{RESET}")
+    print(f"  Model: {target_model}")
+    print(f"  Alias: /{alias}\n")
+
+    confirm = input(f"{FG_YELLOW}Are you sure? [y/N] {RESET}").strip().lower()
+    if confirm != 'y':
+        print(f"{FG_CYAN}Deletion cancelled.{RESET}")
+        return
+
+    if delete_model(target_model):
+        print(f"{FG_GREEN}✅ Model deleted successfully!{RESET}")
+        log_operation("MODEL_DELETE", target_model)
+    else:
+        print(f"{FG_RED}❌ Failed to delete model{RESET}")
+
+
+def cmd_tokens(parts: List[str], state: AppState) -> None:
+    if len(parts) != 2 or not parts[1].isdigit():
+        print(f"{FG_RED}Usage: /tokens <number>{RESET}")
+        return
+    state.max_tokens = int(parts[1])
+    state.session.max_tokens = state.max_tokens
+    print(f"{FG_GREEN}✓ Max tokens: {state.max_tokens}{RESET}")
+
+
+def cmd_ctx(parts: List[str], state: AppState) -> None:
+    if len(parts) != 2 or not parts[1].isdigit():
+        print(f"{FG_RED}Usage: /ctx <number>{RESET}")
+        return
+    state.ctx_chars = int(parts[1])
+    state.session.ctx_chars = state.ctx_chars
+    print(f"{FG_GREEN}✓ Context size: {state.ctx_chars} chars{RESET}")
+
+
+def cmd_pwd(parts: List[str], state: AppState) -> None:
+    rel = state.cwd.replace(ROOT_DIR, "~")
+    print(f"{FG_CYAN}{rel}{RESET}")
+
+
+def cmd_cd(parts: List[str], state: AppState) -> None:
+    if len(parts) < 2:
+        print(f"{FG_RED}Usage: /cd <path>{RESET}")
+        return
+    target = resolve_path(" ".join(parts[1:]), state.cwd)
+    if not is_safe_path(target):
+        print(f"{FG_RED}Cannot cd outside sandbox{RESET}")
+        return
+    if not os.path.isdir(target):
+        print(f"{FG_RED}No such directory: {target}{RESET}")
+        return
+    state.cwd = target
+    os.chdir(state.cwd)
+    state.session.clear_context()
+    state.session.load_project_context(state.cwd)
+    state.project_type = detect_project_type(state.cwd)
+
+    # Load per-project config if present
+    project_cfg = load_project_config(state.cwd)
+    if project_cfg:
+        if "auto_context" in project_cfg:
+            state.session.auto_context_enabled = bool(project_cfg["auto_context"])
+        print(f"{FG_CYAN}📋 Loaded project config from .mlx-code.json{RESET}")
+
+    print_status(state.model_name, state.cwd, state.project_type, state.session)
+
+
+def cmd_ls(parts: List[str], state: AppState) -> None:
+    target = resolve_path(" ".join(parts[1:]) if len(parts) > 1 else "", state.cwd)
+    if not is_safe_path(target):
+        print(f"{FG_RED}Cannot list outside sandbox{RESET}")
+        return
+    if not os.path.isdir(target):
+        print(f"{FG_RED}No such directory{RESET}")
+        return
+    entries = sorted(os.listdir(target))
+    for name in entries:
+        full = os.path.join(target, name)
+        if os.path.isdir(full):
+            print(FG_BLUE + name + "/" + RESET)
+        else:
+            print(name)
+
+
+def cmd_open(parts: List[str], state: AppState) -> None:
+    """Open a file into context. Supports line ranges: /open file.py:10-50"""
+    if len(parts) < 2:
+        print(f"{FG_RED}Usage: /open <file>[:<start>-<end>]{RESET}")
+        print(f"{FG_CYAN}Examples:{RESET}")
+        print(f"  {FG_GREEN}/open main.py{RESET}           Load entire file")
+        print(f"  {FG_GREEN}/open main.py:10-50{RESET}     Load lines 10-50")
+        print(f"  {FG_GREEN}/open main.py:100{RESET}       Load from line 100 onward")
+        return
+
+    raw_arg = " ".join(parts[1:])
+    line_start = None
+    line_end = None
+
+    # Parse line range (file.py:10-50 or file.py:100)
+    if ":" in raw_arg:
+        last_colon = raw_arg.rfind(":")
+        range_part = raw_arg[last_colon + 1:]
+        file_part = raw_arg[:last_colon]
+
+        # Check if it looks like a line range (not a Windows path like C:\...)
+        if re.match(r'^\d+(-\d+)?$', range_part):
+            if "-" in range_part:
+                try:
+                    line_start, line_end = map(int, range_part.split("-", 1))
+                except ValueError:
+                    pass
+            else:
+                try:
+                    line_start = int(range_part)
+                except ValueError:
+                    pass
+            raw_arg = file_part
+
+    target = resolve_path(raw_arg, state.cwd)
+    if not is_safe_path(target):
+        print(f"{FG_RED}Cannot open outside sandbox{RESET}")
+        return
+    if not os.path.isfile(target):
+        print(f"{FG_RED}No such file: {raw_arg}{RESET}")
+        return
+
+    try:
+        if is_image_file(target):
+            desc = describe_image(target)
+            state.session.opened_files[target] = desc
+            print(f"{FG_GREEN}✓ Loaded image: {desc}{RESET}")
+            return
+
+        file_size = os.path.getsize(target)
+        rel = os.path.relpath(target, ROOT_DIR)
+
+        with open(target, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+
+        total_lines = len(all_lines)
+
+        # Apply line range
+        if line_start is not None:
+            start_idx = max(0, line_start - 1)  # Convert to 0-based
+            end_idx = line_end if line_end else total_lines
+            end_idx = min(end_idx, total_lines)
+
+            selected = all_lines[start_idx:end_idx]
+            # Add line numbers for context
+            numbered = []
+            for i, line in enumerate(selected, start=start_idx + 1):
+                numbered.append(f"{i:4d} | {line.rstrip()}")
+            content = f"[Lines {start_idx + 1}-{end_idx} of {total_lines} in {rel}]\n" + "\n".join(numbered)
+            range_str = f" (lines {start_idx + 1}-{end_idx} of {total_lines})"
+        else:
+            content = "".join(all_lines)
+            range_str = ""
+
+        state.session.opened_files[target] = content
+        print(f"{FG_GREEN}✓ Loaded {rel}{range_str} — {len(content)} chars, {total_lines} total lines, {file_size / 1024:.1f}KB{RESET}")
+
+    except Exception as e:
+        print(f"{FG_RED}Error: {e}{RESET}")
+
+
+def cmd_template(parts: List[str], state: AppState) -> None:
+    template_query = handle_template(parts, state.cwd, state.session)
+    if template_query:
+        state.buffer = [template_query]
+        print(f"{FG_CYAN}Template ready. Press Enter to send.{RESET}")
+
+
+def cmd_undo(parts: List[str], state: AppState) -> None:
+    if not state.session.last_modified_files:
+        print(f"{FG_YELLOW}Nothing to undo — no files modified yet.{RESET}")
+        return
+
+    last_file = state.session.last_modified_files[-1]
+    rel_display = os.path.relpath(last_file, ROOT_DIR)
+    backups = list_backups(last_file)
+
+    if not backups:
+        print(f"{FG_YELLOW}No backup found for {rel_display}{RESET}")
+        return
+
+    latest_backup = backups[0]
+    print(f"{FG_CYAN}Undo last change to: {rel_display}{RESET}")
+    print(f"{FG_CYAN}Restore from backup: {latest_backup}{RESET}")
+
+    confirm = input(f"{FG_YELLOW}Restore? [y/N] {RESET}").strip().lower()
+    if confirm == 'y':
+        if restore_backup(latest_backup, last_file):
+            print(f"{FG_GREEN}✅ Restored {rel_display} to previous version{RESET}")
+            state.session.last_modified_files.pop()
+            log_operation("UNDO", rel_display)
+            try:
+                with open(last_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    state.session.opened_files[last_file] = f.read(10000)
+            except Exception:
+                pass
+        else:
+            print(f"{FG_RED}❌ Restore failed{RESET}")
+    else:
+        print(f"{FG_CYAN}Undo cancelled.{RESET}")
+
+
+def cmd_save(parts: List[str], state: AppState) -> None:
+    out_path_raw = " ".join(parts[1:]) if len(parts) > 1 else f"mlx-session-{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    out_path = resolve_path(out_path_raw, state.cwd)
+    if not is_safe_path(out_path):
+        print(f"{FG_RED}Cannot save outside sandbox{RESET}")
+        return
+
+    lines = [
+        f"# MLX-CODE-PRO Session\n",
+        f"**Model:** {state.model_name}\n",
+        f"**Date:** {datetime.now().isoformat()}\n",
+        f"**Project:** {state.project_type or 'Unknown'}\n",
+        "\n---\n\n",
+    ]
+    for role, txt in state.session.history:
+        emoji = "👤" if role == "user" else "🤖"
+        lines.append(f"## {emoji} {role.title()}\n\n")
+        lines.append(txt)
+        lines.append("\n\n---\n\n")
+    try:
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("".join(lines))
+        rel = os.path.relpath(out_path, ROOT_DIR)
+        print(f"{FG_GREEN}✓ Saved to {rel}{RESET}")
+    except Exception as e:
+        print(f"{FG_RED}Error: {e}{RESET}")
+
+
+def cmd_last(parts: List[str], state: AppState) -> None:
+    if state.session.last_query:
+        state.buffer = [state.session.last_query]
+        print(f"{FG_CYAN}Repeating last query. Press Enter.{RESET}")
+    else:
+        print(f"{FG_YELLOW}No previous query{RESET}")
+
+
+def cmd_edit(parts: List[str], state: AppState) -> None:
+    if not state.session.last_modified_files:
+        print(f"{FG_YELLOW}No files modified yet{RESET}")
+        return
+    editor = os.environ.get("EDITOR", "nano")
+    last_file = state.session.last_modified_files[-1]
+    print(f"{FG_CYAN}Opening in {editor}...{RESET}")
+    subprocess.run([editor, last_file])
+
+
+def cmd_git(parts: List[str], state: AppState) -> None:
+    """Handle /git command with subcommands: status, diff, log, add, commit."""
+    subcmds = {
+        "status": ["git", "status", "--short"],
+        "diff": ["git", "diff"],
+        "log": ["git", "log", "--oneline", "-20"],
+        "branch": ["git", "branch", "-a"],
+        "stash": ["git", "stash", "list"],
+    }
+
+    if len(parts) < 2:
+        print(f"\n{FG_CYAN}Git Commands:{RESET}")
+        print(f"  {FG_GREEN}/git status{RESET}              Show changed files")
+        print(f"  {FG_GREEN}/git diff{RESET}                Show unstaged changes")
+        print(f"  {FG_GREEN}/git diff --staged{RESET}       Show staged changes")
+        print(f"  {FG_GREEN}/git log{RESET}                 Show recent commits")
+        print(f"  {FG_GREEN}/git branch{RESET}              List branches")
+        print(f"  {FG_GREEN}/git add <file>{RESET}          Stage a file")
+        print(f"  {FG_GREEN}/git add .{RESET}               Stage all changes")
+        print(f"  {FG_GREEN}/git commit <message>{RESET}    Commit staged changes")
+        print(f"  {FG_GREEN}/git stash{RESET}               List stashes")
+        print()
+        return
+
+    subcmd = parts[1].lower()
+
+    # Predefined safe subcommands
+    if subcmd in subcmds:
+        git_cmd = subcmds[subcmd]
+        # Handle extra flags like /git diff --staged
+        if len(parts) > 2:
+            git_cmd = git_cmd + parts[2:]
+    elif subcmd == "add":
+        if len(parts) < 3:
+            print(f"{FG_RED}Usage: /git add <file|.>{RESET}")
+            return
+        git_cmd = ["git", "add"] + parts[2:]
+    elif subcmd == "commit":
+        if len(parts) < 3:
+            print(f"{FG_RED}Usage: /git commit <message>{RESET}")
+            return
+        message = " ".join(parts[2:])
+        git_cmd = ["git", "commit", "-m", message]
+    else:
+        print(f"{FG_RED}Unknown git subcommand: {subcmd}{RESET}")
+        print(f"{FG_YELLOW}Use /git for available commands{RESET}")
+        return
+
+    try:
+        result = subprocess.run(
+            git_cmd,
+            cwd=state.cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        errors = result.stderr.strip()
+
+        if output:
+            # Color git diff output
+            if subcmd == "diff":
+                for line in output.splitlines():
+                    if line.startswith("+") and not line.startswith("+++"):
+                        print(f"{FG_GREEN}{line}{RESET}")
+                    elif line.startswith("-") and not line.startswith("---"):
+                        print(f"{FG_RED}{line}{RESET}")
+                    elif line.startswith("@@"):
+                        print(f"{FG_YELLOW}{line}{RESET}")
+                    else:
+                        print(line)
+            else:
+                print(output)
+
+        if errors:
+            print(f"{FG_YELLOW}{errors}{RESET}")
+
+        if result.returncode != 0 and not output and not errors:
+            print(f"{FG_YELLOW}(no output){RESET}")
+
+    except subprocess.TimeoutExpired:
+        print(f"{FG_RED}Git command timed out{RESET}")
+    except FileNotFoundError:
+        print(f"{FG_RED}Git not found. Install with: brew install git{RESET}")
+    except Exception as e:
+        print(f"{FG_RED}Git error: {e}{RESET}")
+
+
+def cmd_replace(parts: List[str], state: AppState) -> None:
+    """Find and replace text in a file. Usage: /replace file "old" "new" [--all]"""
+    if len(parts) < 4:
+        print(f"{FG_RED}Usage: /replace <file> \"old text\" \"new text\" [--all]{RESET}")
+        print(f"{FG_CYAN}Examples:{RESET}")
+        print(f'  {FG_GREEN}/replace main.py "old_func" "new_func"{RESET}        First occurrence')
+        print(f'  {FG_GREEN}/replace main.py "old_func" "new_func" --all{RESET}  All occurrences')
+        return
+
+    # Parse arguments — extract quoted strings
+    raw = " ".join(parts[1:])
+    # Extract the file path (first non-quoted token)
+    file_arg = parts[1]
+    remaining = " ".join(parts[2:])
+
+    # Extract quoted strings
+    quoted = re.findall(r'"([^"]*)"', remaining)
+    if len(quoted) < 2:
+        print(f"{FG_RED}Please quote both old and new text with double quotes.{RESET}")
+        print(f'{FG_CYAN}Example: /replace file.py "old text" "new text"{RESET}')
+        return
+
+    old_text = quoted[0]
+    new_text = quoted[1]
+    replace_all = "--all" in parts
+
+    target = resolve_path(file_arg, state.cwd)
+    if not is_safe_path(target):
+        print(f"{FG_RED}Cannot modify outside sandbox{RESET}")
+        return
+    if not os.path.isfile(target):
+        print(f"{FG_RED}No such file: {file_arg}{RESET}")
+        return
+
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        print(f"{FG_RED}Error reading file: {e}{RESET}")
+        return
+
+    count = content.count(old_text)
+    if count == 0:
+        print(f"{FG_YELLOW}Text not found in {file_arg}{RESET}")
+        return
+
+    rel = os.path.relpath(target, ROOT_DIR)
+    if replace_all:
+        new_content = content.replace(old_text, new_text)
+        print(f"{FG_CYAN}Found {count} occurrence(s) in {rel}{RESET}")
+    else:
+        new_content = content.replace(old_text, new_text, 1)
+        print(f"{FG_CYAN}Found {count} occurrence(s), replacing first in {rel}{RESET}")
+
+    # Show diff
+    print_diff(content, new_content, rel)
+
+    confirm = input(f"{FG_YELLOW}Apply replacement? [y/N] {RESET}").strip().lower()
+    if confirm == 'y':
+        backup = create_backup(target)
+        if backup:
+            print(f"{FG_BLUE}  💾 Backup created{RESET}")
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        replaced = count if replace_all else 1
+        print(f"{FG_GREEN}✅ Replaced {replaced} occurrence(s) in {rel}{RESET}")
+        state.session.last_modified_files.append(target)
+        state.session.stats["files_modified"] += 1
+        state.session.opened_files[target] = new_content
+        log_operation("REPLACE", f"{rel}: '{old_text}' -> '{new_text}'")
+    else:
+        print(f"{FG_CYAN}Replacement cancelled.{RESET}")
+
+
+def cmd_find(parts: List[str], state: AppState) -> None:
+    """Search for files by name pattern (glob-style)."""
+    if len(parts) < 2:
+        print(f"{FG_RED}Usage: /find <pattern>{RESET}")
+        print(f"{FG_CYAN}Examples:{RESET}")
+        print(f"  {FG_GREEN}/find *.py{RESET}              All Python files")
+        print(f"  {FG_GREEN}/find test_*{RESET}            Files starting with test_")
+        print(f"  {FG_GREEN}/find **/*.json{RESET}         JSON files in any subdirectory")
+        print(f"  {FG_GREEN}/find main{RESET}              Files containing 'main' in name")
+        return
+
+    pattern = " ".join(parts[1:])
+
+    # If no glob chars, wrap as *pattern*
+    if not any(c in pattern for c in ['*', '?', '[']):
+        pattern = f"**/*{pattern}*"
+    elif not pattern.startswith("**/") and os.sep not in pattern:
+        pattern = f"**/{pattern}"
+
+    results = []
+    for match in Path(state.cwd).glob(pattern):
+        # Skip hidden files/dirs
+        if any(part.startswith('.') for part in match.parts):
+            continue
+        # Skip common junk dirs
+        skip_dirs = {'node_modules', '__pycache__', 'venv', 'env', '.git', 'dist', 'build'}
+        if skip_dirs.intersection(match.parts):
+            continue
+        if match.is_file():
+            results.append(match)
+
+    if not results:
+        print(f"{FG_YELLOW}No files matching '{pattern}'{RESET}")
+        return
+
+    results.sort(key=lambda p: str(p))
+    print(f"\n{FG_GREEN}Found {len(results)} file(s):{RESET}\n")
+
+    for path in results[:50]:
+        rel = path.relative_to(state.cwd)
+        try:
+            size = path.stat().st_size
+            if size < 1024:
+                size_str = f"{size}B"
+            else:
+                size_str = f"{size / 1024:.1f}KB"
+        except Exception:
+            size_str = "?"
+        print(f"  {FG_CYAN}{rel}{RESET}  {DIM}{size_str}{RESET}")
+
+    if len(results) > 50:
+        print(f"\n{FG_YELLOW}... and {len(results) - 50} more{RESET}")
+    print()
+
+
+def cmd_run(parts: List[str], state: AppState) -> None:
+    """Execute a shell command in the project directory."""
+    if len(parts) < 2:
+        print(f"{FG_RED}Usage: /run <command>{RESET}")
+        print(f"{FG_CYAN}Examples:{RESET}")
+        print(f"  {FG_GREEN}/run python main.py{RESET}")
+        print(f"  {FG_GREEN}/run npm test{RESET}")
+        print(f"  {FG_GREEN}/run cargo build{RESET}")
+        print(f"  {FG_GREEN}/run python -m pytest{RESET}")
+        print(f"\n{FG_CYAN}Add {FG_GREEN}--ai{FG_CYAN} to send output to the assistant:{RESET}")
+        print(f"  {FG_GREEN}/run python main.py --ai{RESET}")
+        return
+
+    # Check for --ai flag (send output to assistant)
+    send_to_ai = "--ai" in parts
+    cmd_parts = [p for p in parts[1:] if p != "--ai"]
+    command = " ".join(cmd_parts)
+
+    print(f"{FG_CYAN}$ {command}{RESET}")
+    print(f"{DIM}{'─' * 70}{RESET}")
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=state.cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        stdout = result.stdout
+        stderr = result.stderr
+
+        # Limit output to avoid flooding
+        max_output = 5000
+        if stdout:
+            if len(stdout) > max_output:
+                print(stdout[:max_output])
+                print(f"\n{FG_YELLOW}... output truncated ({len(stdout)} chars total){RESET}")
+            else:
+                print(stdout, end="")
+
+        if stderr:
+            if len(stderr) > max_output:
+                print(f"{FG_RED}{stderr[:max_output]}{RESET}")
+                print(f"\n{FG_YELLOW}... stderr truncated ({len(stderr)} chars total){RESET}")
+            else:
+                print(f"{FG_RED}{stderr}{RESET}", end="")
+
+        print(f"{DIM}{'─' * 70}{RESET}")
+
+        exit_code = result.returncode
+        if exit_code == 0:
+            print(f"{FG_GREEN}✓ Exit code: {exit_code}{RESET}")
+        else:
+            print(f"{FG_RED}✗ Exit code: {exit_code}{RESET}")
+
+        # Optionally send to AI for analysis
+        if send_to_ai:
+            output_text = ""
+            if stdout:
+                output_text += stdout[:max_output]
+            if stderr:
+                output_text += f"\n[STDERR]:\n{stderr[:max_output]}"
+            context_msg = f"I ran `{command}` (exit code {exit_code}). Here's the output:\n```\n{output_text}\n```\nPlease analyze this output."
+            state.buffer = [context_msg]
+            print(f"\n{FG_CYAN}Output queued for AI analysis. Press Enter to send.{RESET}")
+
+    except subprocess.TimeoutExpired:
+        print(f"{DIM}{'─' * 70}{RESET}")
+        print(f"{FG_RED}✗ Command timed out (60s limit){RESET}")
+    except Exception as e:
+        print(f"{DIM}{'─' * 70}{RESET}")
+        print(f"{FG_RED}✗ Error: {e}{RESET}")
+
+
+def cmd_copy(parts: List[str], state: AppState) -> None:
+    """Copy last code block from assistant's response to clipboard."""
+    # Find last assistant message
+    last_response = None
+    for role, content in reversed(state.session.history):
+        if role == "assistant":
+            last_response = content
+            break
+
+    if not last_response:
+        print(f"{FG_YELLOW}No assistant response to copy from.{RESET}")
+        return
+
+    # Extract code blocks
+    blocks = extract_code_blocks(last_response)
+    file_blocks = extract_file_blocks(last_response)
+    all_blocks = file_blocks + blocks
+
+    if not all_blocks:
+        print(f"{FG_YELLOW}No code blocks found in last response.{RESET}")
+        return
+
+    if len(all_blocks) == 1:
+        content = all_blocks[0]["content"]
+        idx = 0
+    else:
+        # Let user choose which block
+        print(f"\n{FG_CYAN}Found {len(all_blocks)} code block(s):{RESET}\n")
+        for i, block in enumerate(all_blocks):
+            label = block.get("path", block.get("lang", "code"))
+            preview = block["content"].splitlines()[0][:60] if block["content"].strip() else "(empty)"
+            print(f"  {FG_GREEN}[{i + 1}]{RESET} {label}: {DIM}{preview}{RESET}")
+
+        choice = input(f"\n{FG_YELLOW}Copy which block? [1-{len(all_blocks)}] {RESET}").strip()
+        try:
+            idx = int(choice) - 1
+            if idx < 0 or idx >= len(all_blocks):
+                print(f"{FG_RED}Invalid choice.{RESET}")
+                return
+        except ValueError:
+            print(f"{FG_RED}Invalid choice.{RESET}")
+            return
+        content = all_blocks[idx]["content"]
+
+    try:
+        process = subprocess.run(
+            ["pbcopy"],
+            input=content,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        if process.returncode == 0:
+            lines = len(content.splitlines())
+            print(f"{FG_GREEN}✓ Copied to clipboard ({lines} lines, {len(content)} chars){RESET}")
+        else:
+            print(f"{FG_RED}Failed to copy: {process.stderr}{RESET}")
+    except FileNotFoundError:
+        # Fallback for non-macOS
+        print(f"{FG_YELLOW}pbcopy not found (macOS only). Content:{RESET}")
+        print(content)
+    except Exception as e:
+        print(f"{FG_RED}Error: {e}{RESET}")
+
+
+def cmd_project(parts: List[str], state: AppState) -> None:
+    detected = detect_project_type(state.cwd)
+    if detected:
+        print(f"{FG_GREEN}🔧 Detected: {detected}{RESET}")
+        print(f"\n{FG_CYAN}Project structure:{RESET}")
+        print(get_project_structure(state.cwd))
+    else:
+        print(f"{FG_YELLOW}Could not detect project type{RESET}")
+
+
+# Command dispatcher table
+COMMAND_DISPATCH = {
+    "/exit": cmd_exit,
+    "/help": cmd_help,
+    "/clear": cmd_clear,
+    "/model": cmd_model,
+    "/models": cmd_models,
+    "/installed": cmd_installed,
+    "/download": cmd_download,
+    "/delete": cmd_delete,
+    "/tokens": cmd_tokens,
+    "/ctx": cmd_ctx,
+    "/pwd": cmd_pwd,
+    "/cd": cmd_cd,
+    "/ls": cmd_ls,
+    "/tree": lambda parts, state: handle_tree(parts, state.cwd),
+    "/grep": lambda parts, state: handle_grep(parts, state.cwd),
+    "/diff": lambda parts, state: handle_diff(parts, state.cwd),
+    "/open": cmd_open,
+    "/context": lambda parts, state: handle_context(parts, state.session, state.cwd),
+    "/template": cmd_template,
+    "/undo": cmd_undo,
+    "/backups": lambda parts, state: handle_backups(parts, state.cwd),
+    "/restore": lambda parts, state: handle_restore(parts, state.cwd),
+    "/save": cmd_save,
+    "/last": cmd_last,
+    "/edit": cmd_edit,
+    "/stats": lambda parts, state: handle_stats(state.session),
+    "/project": cmd_project,
+    "/git": cmd_git,
+    "/run": cmd_run,
+    "/find": cmd_find,
+    "/replace": cmd_replace,
+    "/copy": cmd_copy,
+}
+
+
+# ---------------------------------------------------------------------------
 # MAIN LOOP
 # ---------------------------------------------------------------------------
 
@@ -1747,10 +2828,14 @@ def main():
 
     ensure_directories()
 
-    # Initialize
-    cwd = ROOT_DIR
-
     config = load_config()
+
+    # Per-project config overrides global config
+    project_cfg = load_project_config(ROOT_DIR)
+    if project_cfg:
+        config.update(project_cfg)
+        print(f"{FG_CYAN}📋 Loaded project config from .mlx-code.json{RESET}")
+
     model_name = config.get("model", DEFAULT_MODEL)
     max_tokens = config.get("max_tokens", DEFAULT_MAX_TOKENS)
     ctx_chars = config.get("ctx_chars", DEFAULT_CTX_CHARS)
@@ -1759,36 +2844,36 @@ def main():
     print_help()
 
     session = ChatSession(model_name, max_tokens, ctx_chars)
+    if "auto_context" in config:
+        session.auto_context_enabled = bool(config["auto_context"])
+    state = AppState(model_name, max_tokens, ctx_chars, ROOT_DIR, session)
+    session.load_project_context(state.cwd)
 
-    # Load project context automatically
-    project_type = detect_project_type(cwd)
-    session.load_project_context(cwd)
+    # Offer to restore autosaved conversation
+    autosave = load_autosave()
+    if autosave and autosave.get("history"):
+        n_msgs = len(autosave["history"])
+        ts = autosave.get("timestamp", "unknown")
+        print(f"\n{FG_YELLOW}💾 Found autosaved conversation ({n_msgs} messages, from {ts}){RESET}")
+        restore = input(f"{FG_YELLOW}Restore previous conversation? [y/N] {RESET}").strip().lower()
+        if restore == 'y':
+            for msg in autosave["history"]:
+                session.history.append((msg["role"], msg["content"]))
+            print(f"{FG_GREEN}✓ Restored {n_msgs} messages{RESET}")
+        else:
+            clear_autosave()
 
-    print_status(model_name, cwd, project_type, session)
+    print_status(state.model_name, state.cwd, state.project_type, state.session)
 
     # Setup advanced input with prompt_toolkit (if available)
     if HAS_PROMPT_TOOLKIT:
-        # Create history file
         history_file = os.path.join(LOG_DIR, "command_history.txt")
-
-        # Create completer for commands
-        commands = [
-            '/help', '/exit', '/clear', '/model', '/models', '/installed',
-            '/download', '/delete', '/q1.5b', '/q3b', '/q7b', '/q14b', '/q32b',
-            '/ds', '/ds1.3b', '/ds6.7b', '/deepseek', '/mistral', '/m7b',
-            '/llama3-8b', '/l3-8b', '/phi3', '/phi', '/codellama', '/cl13b',
-            '/tokens', '/ctx', '/pwd', '/cd', '/ls', '/tree', '/grep', '/diff',
-            '/open', '/context', '/template', '/backups', '/restore', '/save',
-            '/last', '/edit', '/stats', '/project'
-        ]
+        commands = sorted(set(
+            list(COMMAND_DISPATCH.keys()) +
+            [f"/{alias}" for alias in MODEL_ALIASES.keys()]
+        ))
         completer = WordCompleter(commands, ignore_case=True, sentence=True)
-
-        # Create custom style
-        prompt_style = Style.from_dict({
-            'prompt': 'ansigreen bold',
-        })
-
-        # Create prompt session
+        prompt_style = Style.from_dict({'prompt': 'ansigreen bold'})
         prompt_session = PromptSession(
             history=FileHistory(history_file),
             auto_suggest=AutoSuggestFromHistory(),
@@ -1801,475 +2886,75 @@ def main():
     else:
         prompt_session = None
 
-    buffer: List[str] = []
-
     while True:
         try:
             if HAS_PROMPT_TOOLKIT and prompt_session:
-                # Use advanced prompt with history and completion
                 line = prompt_session.prompt(HTML(f'<ansigreen>></ansigreen> '))
             else:
-                # Fallback to basic input
                 line = input(f"{FG_GREEN}>{RESET} ")
         except KeyboardInterrupt:
-            # CTRL+C: Clear current buffer and show new prompt
-            if buffer:
+            if state.buffer:
                 print(f"\n{FG_YELLOW}^C (buffer cleared){RESET}")
-                buffer = []
+                state.buffer = []
             else:
                 print(f"\n{FG_YELLOW}^C (use /exit to quit){RESET}")
             continue
         except EOFError:
-            # CTRL+D: Exit gracefully
+            clear_autosave()
             print("\n\n👋 Goodbye!")
             break
 
         stripped = line.strip()
 
-        # Empty line -> send
+        # Empty line -> send buffered message
         if stripped == "":
-            if buffer:
-                user_message = "\n".join(buffer)
-                buffer = []
+            if state.buffer:
+                user_message = "\n".join(state.buffer)
+                state.buffer = []
 
-                # Generate response
+                # Generate response (streamed to terminal in real-time)
                 print(f"\n{FG_CYAN}🤖 Assistant:{RESET}\n")
-                response = session.ask(user_message, cwd)
-                print_colored_response(response)
+                response = state.session.ask(user_message, state.cwd)
 
                 # Handle file changes
                 blocks = extract_file_blocks(response)
                 if blocks:
-                    apply_file_changes(blocks, cwd, session)
+                    apply_file_changes(blocks, state.cwd, state.session)
                 else:
-                    maybe_save_code_block(response, cwd, session)
+                    maybe_save_code_block(response, state.cwd, state.session)
 
                 print()
-                continue
-            else:
-                continue
+            continue
 
         # Commands
         if stripped.startswith("/"):
             parts = stripped.split()
             cmd = parts[0].lower()
 
-            # Exit
-            if cmd == "/exit":
-                config = {
-                    "model": model_name,
-                    "max_tokens": max_tokens,
-                    "ctx_chars": ctx_chars,
-                }
-                save_config(config)
-                print("Configuration saved. 👋 Goodbye!")
+            # Check dispatcher first
+            handler = COMMAND_DISPATCH.get(cmd)
+
+            # Check model aliases (e.g., /q7b, /ds, /llama3-8b)
+            if handler is None and cmd[1:] in MODEL_ALIASES:
+                state.model_name = MODEL_ALIASES[cmd[1:]]
+                state.reload_session()
+                print_status(state.model_name, state.cwd, state.project_type, state.session)
+                continue
+
+            if handler is None:
+                print(f"{FG_RED}Unknown command: {cmd}{RESET}")
+                print(f"{FG_YELLOW}Type /help for commands{RESET}")
+                continue
+
+            result = handler(parts, state)
+            if result == "break":
                 break
-
-            # Help
-            if cmd == "/help":
-                print_help()
-                print_status(model_name, cwd, project_type, session)
-                continue
-
-            # Clear
-            if cmd == "/clear":
-                session.history.clear()
-                print(f"{FG_GREEN}✓ Chat history cleared{RESET}")
-                continue
-
-            # Model
-            if cmd == "/model":
-                if len(parts) < 2:
-                    print(f"{FG_RED}Usage: /model <huggingface-model-id>{RESET}")
-                    continue
-                new_model = parts[1].strip()
-                model_name = new_model
-                session = ChatSession(model_name, max_tokens, ctx_chars)
-                session.load_project_context(cwd)
-                print_status(model_name, cwd, project_type, session)
-                continue
-
-            # Aliases - check if command is a model alias
-            if cmd[1:] in MODEL_ALIASES:  # Remove leading / and check
-                key = cmd[1:]
-                new_model = MODEL_ALIASES.get(key)
-                if not new_model:
-                    print(f"{FG_RED}Alias {cmd} not configured{RESET}")
-                    continue
-                model_name = new_model
-                session = ChatSession(model_name, max_tokens, ctx_chars)
-                session.load_project_context(cwd)
-                print_status(model_name, cwd, project_type, session)
-                continue
-
-            # MODELS - List available models
-            if cmd == "/models":
-                print(f"\n{FG_CYAN}{'═' * 80}{RESET}")
-                print(f"{FG_CYAN}{BOLD}📦 Available Models (M4 Pro 24GB Optimized){RESET}")
-                print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
-
-                models = list_available_models()
-
-                # Group by category
-                categories = {
-                    "Qwen Coder (Recommended for Code)": ["q1.5b", "q3b", "q7b", "q14b", "q32b"],
-                    "DeepSeek Coder (Excellent)": ["ds1.3b", "ds6.7b", "ds", "deepseek"],
-                    "Mistral (Versatile)": ["mistral", "m7b"],
-                    "Llama 3 (Strong Reasoning)": ["llama3-8b", "l3-8b"],
-                    "Phi (Efficient)": ["phi3", "phi"],
-                    "CodeLlama (Code Specialist)": ["codellama", "cl13b"],
-                }
-
-                for category, aliases in categories.items():
-                    print(f"{FG_YELLOW}{BOLD}{category}{RESET}")
-                    for alias in aliases:
-                        if alias in models:
-                            model = models[alias]
-                            status = f"{FG_GREEN}✓ Installed{RESET}" if model["cached"] else f"{FG_RED}✗ Not installed{RESET}"
-                            print(f"  {FG_GREEN}/{alias:12}{RESET}  {model['size']:>7}  {model['ram']:>10} RAM  {status}")
-                    print()
-
-                print(f"{FG_CYAN}💡 Usage:{RESET}")
-                print(f"  • Switch model: {FG_GREEN}/<alias>{RESET} (e.g., /q32b)")
-                print(f"  • Download: {FG_GREEN}/download <alias>{RESET} (e.g., /download q32b)")
-                print(f"  • Delete: {FG_GREEN}/delete <alias>{RESET}")
-                print(f"\n{FG_CYAN}{'═' * 80}{RESET}\n")
-                continue
-
-            # INSTALLED - Show installed models
-            if cmd == "/installed":
-                installed = list_installed_models()
-                if not installed:
-                    print(f"\n{FG_YELLOW}No models installed yet.{RESET}")
-                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}\n")
-                    continue
-
-                print(f"\n{FG_CYAN}{'═' * 80}{RESET}")
-                print(f"{FG_CYAN}{BOLD}💾 Installed Models{RESET}")
-                print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
-
-                total_size = 0
-                for model_name, dir_name, size_str in installed:
-                    size_gb = float(size_str.replace("GB", ""))
-                    total_size += size_gb
-
-                    # Find alias if exists
-                    alias = None
-                    for a, full_name in MODEL_ALIASES.items():
-                        if full_name == model_name:
-                            alias = f"/{a}"
-                            break
-
-                    alias_str = f"{FG_GREEN}{alias}{RESET}" if alias else ""
-                    print(f"  {FG_CYAN}{model_name:55}{RESET} {size_str:>8}  {alias_str}")
-
-                print(f"\n{FG_YELLOW}Total disk usage: {total_size:.2f}GB{RESET}")
-                print(f"{FG_CYAN}Cache location: ~/.cache/huggingface/hub/{RESET}")
-                print(f"{FG_CYAN}{'═' * 80}{RESET}\n")
-                continue
-
-            # DOWNLOAD - Download a model
-            if cmd == "/download":
-                if len(parts) < 2:
-                    print(f"{FG_RED}Usage: /download <model-alias>{RESET}")
-                    print(f"{FG_CYAN}Example: /download q32b{RESET}")
-                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
-                    continue
-
-                alias = parts[1].lower()
-                if alias not in MODEL_ALIASES:
-                    print(f"{FG_RED}Unknown model alias: {alias}{RESET}")
-                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
-                    continue
-
-                target_model = MODEL_ALIASES[alias]
-
-                # Check if already downloaded
-                if is_model_cached(target_model):
-                    print(f"{FG_YELLOW}Model {alias} is already downloaded!{RESET}")
-                    ans = input(f"{FG_YELLOW}Re-download anyway? [y/N] {RESET}").strip().lower()
-                    if ans != 'y':
-                        continue
-
-                size = get_model_size_estimate(target_model)
-                ram = get_model_ram_requirement(target_model)
-
-                print(f"\n{FG_CYAN}{'═' * 70}{RESET}")
-                print(f"{FG_CYAN}📥 Download Model: {FG_GREEN}/{alias}{RESET}")
-                print(f"{FG_CYAN}{'═' * 70}{RESET}")
-                print(f"  Model: {target_model}")
-                print(f"  Size: {size}")
-                print(f"  RAM needed: {ram}")
-                print(f"{FG_CYAN}{'═' * 70}{RESET}\n")
-
-                confirm = input(f"{FG_YELLOW}Download this model? [y/N] {RESET}").strip().lower()
-                if confirm != 'y':
-                    print(f"{FG_CYAN}Download cancelled.{RESET}")
-                    continue
-
-                # Try git-lfs first, then fallback to normal download
-                print(f"\n{FG_CYAN}Starting download...{RESET}\n")
-                success = download_model_with_git_lfs(target_model)
-
-                if not success:
-                    print(f"{FG_CYAN}Falling back to standard download...{RESET}\n")
-                    try:
-                        spinner = Spinner("Downloading model")
-                        spinner.start()
-                        # This will trigger download
-                        from mlx_lm import load
-                        model, tokenizer = load(target_model)
-                        spinner.stop()
-                        print(f"{FG_GREEN}✅ Model downloaded successfully!{RESET}\n")
-                        del model, tokenizer  # Free memory
-                    except Exception as e:
-                        spinner.stop()
-                        print(f"{FG_RED}❌ Download failed: {e}{RESET}\n")
-
-                continue
-
-            # DELETE - Delete a model
-            if cmd == "/delete":
-                if len(parts) < 2:
-                    print(f"{FG_RED}Usage: /delete <model-alias>{RESET}")
-                    print(f"{FG_CYAN}Example: /delete q3b{RESET}")
-                    print(f"{FG_CYAN}Use {FG_GREEN}/installed{FG_CYAN} to see installed models{RESET}")
-                    continue
-
-                alias = parts[1].lower()
-                if alias not in MODEL_ALIASES:
-                    print(f"{FG_RED}Unknown model alias: {alias}{RESET}")
-                    print(f"{FG_CYAN}Use {FG_GREEN}/models{FG_CYAN} to see available models{RESET}")
-                    continue
-
-                target_model = MODEL_ALIASES[alias]
-
-                # Check if model is installed
-                if not is_model_cached(target_model):
-                    print(f"{FG_YELLOW}Model {alias} is not installed.{RESET}")
-                    continue
-
-                print(f"\n{FG_YELLOW}⚠️  WARNING: This will delete the model from disk!{RESET}")
-                print(f"  Model: {target_model}")
-                print(f"  Alias: /{alias}\n")
-
-                confirm = input(f"{FG_YELLOW}Are you sure? [y/N] {RESET}").strip().lower()
-                if confirm != 'y':
-                    print(f"{FG_CYAN}Deletion cancelled.{RESET}")
-                    continue
-
-                if delete_model(target_model):
-                    print(f"{FG_GREEN}✅ Model deleted successfully!{RESET}")
-                    log_operation("MODEL_DELETE", target_model)
-                else:
-                    print(f"{FG_RED}❌ Failed to delete model{RESET}")
-
-                continue
-
-            # Tokens
-            if cmd == "/tokens":
-                if len(parts) != 2 or not parts[1].isdigit():
-                    print(f"{FG_RED}Usage: /tokens <number>{RESET}")
-                    continue
-                max_tokens = int(parts[1])
-                session.max_tokens = max_tokens
-                print(f"{FG_GREEN}✓ Max tokens: {max_tokens}{RESET}")
-                continue
-
-            # Context size
-            if cmd == "/ctx":
-                if len(parts) != 2 or not parts[1].isdigit():
-                    print(f"{FG_RED}Usage: /ctx <number>{RESET}")
-                    continue
-                ctx_chars = int(parts[1])
-                session.ctx_chars = ctx_chars
-                print(f"{FG_GREEN}✓ Context size: {ctx_chars} chars{RESET}")
-                continue
-
-            # PWD
-            if cmd == "/pwd":
-                rel = cwd.replace(ROOT_DIR, "~")
-                print(f"{FG_CYAN}{rel}{RESET}")
-                continue
-
-            # CD
-            if cmd == "/cd":
-                if len(parts) < 2:
-                    print(f"{FG_RED}Usage: /cd <path>{RESET}")
-                    continue
-                target = resolve_path(" ".join(parts[1:]), cwd)
-                if not is_safe_path(target):
-                    print(f"{FG_RED}Cannot cd outside sandbox{RESET}")
-                    continue
-                if not os.path.isdir(target):
-                    print(f"{FG_RED}No such directory: {target}{RESET}")
-                    continue
-                cwd = target
-                os.chdir(cwd)
-                project_type = detect_project_type(cwd)
-                session.clear_context()
-                session.load_project_context(cwd)
-                print_status(model_name, cwd, project_type, session)
-                continue
-
-            # LS
-            if cmd == "/ls":
-                target = resolve_path(" ".join(parts[1:]) if len(parts) > 1 else "", cwd)
-                if not is_safe_path(target):
-                    print(f"{FG_RED}Cannot list outside sandbox{RESET}")
-                    continue
-                if not os.path.isdir(target):
-                    print(f"{FG_RED}No such directory{RESET}")
-                    continue
-                entries = sorted(os.listdir(target))
-                for name in entries:
-                    full = os.path.join(target, name)
-                    if os.path.isdir(full):
-                        print(FG_BLUE + name + "/" + RESET)
-                    else:
-                        print(name)
-                continue
-
-            # TREE
-            if cmd == "/tree":
-                handle_tree(parts, cwd)
-                continue
-
-            # GREP
-            if cmd == "/grep":
-                handle_grep(parts, cwd)
-                continue
-
-            # DIFF
-            if cmd == "/diff":
-                handle_diff(parts, cwd)
-                continue
-
-            # OPEN
-            if cmd == "/open":
-                if len(parts) < 2:
-                    print(f"{FG_RED}Usage: /open <file>{RESET}")
-                    continue
-                target = resolve_path(" ".join(parts[1:]), cwd)
-                if not is_safe_path(target):
-                    print(f"{FG_RED}Cannot open outside sandbox{RESET}")
-                    continue
-                if not os.path.isfile(target):
-                    print(f"{FG_RED}No such file{RESET}")
-                    continue
-
-                try:
-                    if is_image_file(target):
-                        desc = describe_image(target)
-                        session.opened_files[target] = desc
-                        print(f"{FG_GREEN}✓ Loaded image: {desc}{RESET}")
-                    else:
-                        with open(target, "r", encoding="utf-8") as f:
-                            content = f.read()
-                        rel = os.path.relpath(target, ROOT_DIR)
-                        session.opened_files[target] = content
-                        print(f"{FG_GREEN}✓ Loaded {rel} into context ({len(content)} chars){RESET}")
-                except Exception as e:
-                    print(f"{FG_RED}Error: {e}{RESET}")
-                continue
-
-            # CONTEXT
-            if cmd == "/context":
-                handle_context(parts, session, cwd)
-                continue
-
-            # TEMPLATE
-            if cmd == "/template":
-                template_query = handle_template(parts, cwd, session)
-                if template_query:
-                    buffer = [template_query]
-                    print(f"{FG_CYAN}Template ready. Press Enter to send.{RESET}")
-                continue
-
-            # BACKUPS
-            if cmd == "/backups":
-                handle_backups(parts, cwd)
-                continue
-
-            # RESTORE
-            if cmd == "/restore":
-                handle_restore(parts, cwd)
-                continue
-
-            # SAVE
-            if cmd == "/save":
-                out_path_raw = " ".join(parts[1:]) if len(
-                    parts) > 1 else f"mlx-session-{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-                out_path = resolve_path(out_path_raw, cwd)
-                if not is_safe_path(out_path):
-                    print(f"{FG_RED}Cannot save outside sandbox{RESET}")
-                    continue
-
-                lines = [
-                    f"# MLX-CODE-PRO Session\n",
-                    f"**Model:** {model_name}\n",
-                    f"**Date:** {datetime.now().isoformat()}\n",
-                    f"**Project:** {project_type or 'Unknown'}\n",
-                    "\n---\n\n",
-                ]
-                for role, txt in session.history:
-                    emoji = "👤" if role == "user" else "🤖"
-                    lines.append(f"## {emoji} {role.title()}\n\n")
-                    lines.append(txt)
-                    lines.append("\n\n---\n\n")
-                try:
-                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                    with open(out_path, "w", encoding="utf-8") as f:
-                        f.write("".join(lines))
-                    rel = os.path.relpath(out_path, ROOT_DIR)
-                    print(f"{FG_GREEN}✓ Saved to {rel}{RESET}")
-                except Exception as e:
-                    print(f"{FG_RED}Error: {e}{RESET}")
-                continue
-
-            # LAST
-            if cmd == "/last":
-                if session.last_query:
-                    buffer = [session.last_query]
-                    print(f"{FG_CYAN}Repeating last query. Press Enter.{RESET}")
-                else:
-                    print(f"{FG_YELLOW}No previous query{RESET}")
-                continue
-
-            # EDIT
-            if cmd == "/edit":
-                if not session.last_modified_files:
-                    print(f"{FG_YELLOW}No files modified yet{RESET}")
-                    continue
-                editor = os.environ.get("EDITOR", "nano")
-                last_file = session.last_modified_files[-1]
-                print(f"{FG_CYAN}Opening in {editor}...{RESET}")
-                os.system(f"{editor} {last_file}")
-                continue
-
-            # STATS
-            if cmd == "/stats":
-                handle_stats(session)
-                continue
-
-            # PROJECT
-            if cmd == "/project":
-                detected = detect_project_type(cwd)
-                if detected:
-                    print(f"{FG_GREEN}🔧 Detected: {detected}{RESET}")
-                    print(f"\n{FG_CYAN}Project structure:{RESET}")
-                    print(get_project_structure(cwd))
-                else:
-                    print(f"{FG_YELLOW}Could not detect project type{RESET}")
-                continue
-
-            # Unknown
-            print(f"{FG_RED}Unknown command: {cmd}{RESET}")
-            print(f"{FG_YELLOW}Type /help for commands{RESET}")
             continue
 
-        # Normal text
-        buffer.append(line)
+        # Normal text — add to multi-line buffer
+        state.buffer.append(line)
+        if len(state.buffer) == 1:
+            print(f"{DIM}(press Enter on empty line to send, or keep typing for multi-line){RESET}")
 
 
 if __name__ == "__main__":

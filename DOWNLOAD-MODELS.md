@@ -1,6 +1,6 @@
 # Alternative Model Download Methods
 
-**Last Updated:** November 26, 2024
+**Last Updated:** February 25, 2026
 
 **⚠️ Important:** MLX-CODE starts with **Qwen 1.5B** (1GB) by default for fast setup. This is **only a demo model** with limited quality. For real coding work, **upgrade to 7B, 14B, or DeepSeek** using this guide.
 
@@ -104,9 +104,8 @@ mv /tmp/DeepSeek-Coder-1.3B-Instruct-4bit ~/.cache/huggingface/hub/models--mlx-c
 ls -lh ~/.cache/huggingface/hub/models--mlx-community--*/
 
 # Launch MLX-CODE and switch to the model
-cd ~/Documents/Progetti/Test
-source ~/.mlx-env/bin/activate
-~/mlx-code
+cd ~/Documents/Progetti/your-project
+~/mlx-code   # No env activation needed in v3.0+
 
 # Inside MLX-CODE:
 /mistral    # or /q3b, /q7b, /q14b, /deepseek, /ds, etc.

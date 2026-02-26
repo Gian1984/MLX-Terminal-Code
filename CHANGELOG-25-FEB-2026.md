@@ -149,4 +149,3 @@ chmod +x ~/mlx-code
 
 **Contributors:**
 - **Gianluca** — Project owner
-- **Claude Opus 4.6** — Architecture, implementation, and documentation
